@@ -4,7 +4,15 @@ SentinelPR ships as a single container image that runs the dashboard, any of the
 one-shot migrations — selected by the container command. The stack: PostgreSQL, Redis, object
 storage (S3/MinIO/R2), and the image itself.
 
-## 1. Build the image
+## 1. Get the image
+
+**Prebuilt (recommended):** every version tag publishes to GHCR via the release workflow:
+
+```bash
+docker pull ghcr.io/<owner>/sentinelpr:latest   # or a pinned version, e.g. :1.2.3
+```
+
+**Build locally:**
 
 ```bash
 docker build -t sentinelpr .
@@ -60,6 +68,19 @@ Two independent integrations:
 2. **GitHub App** (repository reviews) — create at <https://github.com/settings/apps/new> with the
    webhook URL above; see [github-app-setup.md](github-app-setup.md) for permissions and key
    encoding.
+
+## Releasing a new version
+
+Releases are tag-driven:
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+The release workflow re-verifies the tagged commit (typecheck + unit tests), builds the image with
+GHA layer caching, pushes it to GHCR tagged with the full semver, the major.minor, the major, and
+`latest`, and publishes a GitHub release with generated notes. CI runs the same image build on
+every push, so a release tag never triggers a first-time build.
 
 ## 6. Migrations
 
