@@ -7,15 +7,6 @@
     "node": ">=20"
   },
   "packageManager": "pnpm@12.3.4",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "prisma",
-      "@prisma/engines",
-      "playwright",
-      "@prisma/adapter-pg"
-    ]
-  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -52,7 +43,6 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@embedded-postgres/windows-x64": "17.4.0-beta.15",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^26.4.1",
     "@types/pg": "^8.23.1",
