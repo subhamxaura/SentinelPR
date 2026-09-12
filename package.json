@@ -24,6 +24,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "screenshots": "tsx scripts/capture-screenshots.ts",
+    "report": "tsx scripts/generate-report.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",

@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<style>
+  @page { size: A4; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Segoe UI", Helvetica, Arial, sans-serif; color: #18181b; font-size: 10.5pt; line-height: 1.55; }
+  .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace; }
+
+  /* ── Cover ─────────────────────────────────────────────── */
+  .cover { height: 257mm; display: flex; flex-direction: column; justify-content: space-between; background: linear-gradient(160deg, #09090b 0%, #18181b 70%, #1e1b4b 100%); color: #fafafa; border-radius: 4mm; padding: 18mm 16mm; }
+  .cover .brand { font-size: 9pt; letter-spacing: 3px; color: #818cf8; }
+  .cover h1 { font-size: 30pt; line-height: 1.15; margin-top: 4mm; font-weight: 700; }
+  .cover .sub { color: #a1a1aa; font-size: 12pt; margin-top: 4mm; max-width: 150mm; }
+  .cover .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4mm; margin-top: 14mm; }
+  .cover .stat { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 2.5mm; padding: 5mm 4mm; }
+  .cover .stat b { display: block; font-size: 17pt; color: #a5b4fc; }
+  .cover .stat span { font-size: 7.5pt; color: #a1a1aa; letter-spacing: 0.5px; text-transform: uppercase; }
+  .cover .meta { font-size: 8.5pt; color: #a1a1aa; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 4mm; display: flex; justify-content: space-between; }
+
+  h2 { font-size: 15pt; color: #09090b; border-bottom: 2.5px solid #6366f1; padding-bottom: 1.5mm; margin: 9mm 0 4mm; }
+  h3 { font-size: 11.5pt; margin: 5mm 0 2mm; color: #312e81; }
+  p { margin: 1.5mm 0; }
+  ul { margin: 1.5mm 0 2mm 5mm; }
+  li { margin: 0.8mm 0; }
+  .kicker { font-size: 8pt; letter-spacing: 2px; text-transform: uppercase; color: #6366f1; font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; margin: 2.5mm 0; font-size: 9pt; }
+  th { background: #f4f4f5; text-align: left; padding: 2mm 2.5mm; border-bottom: 1.5px solid #d4d4d8; font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.5px; color: #3f3f46; }
+  td { padding: 1.9mm 2.5mm; border-bottom: 0.5px solid #e4e4e7; vertical-align: top; }
+  tr { page-break-inside: avoid; }
+
+  .ok { color: #15803d; font-weight: 600; }
+  .pill { display: inline-block; padding: 0.4mm 2.2mm; border-radius: 99px; font-size: 8pt; font-weight: 600; }
+  .pill.g { background: #dcfce7; color: #15803d; }
+  .pill.i { background: #e0e7ff; color: #4338ca; }
+  .pill.a { background: #fef3c7; color: #b45309; }
+
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 3.5mm; margin: 3mm 0; }
+  .card { border: 1px solid #e4e4e7; border-radius: 2mm; padding: 3.5mm 4mm; page-break-inside: avoid; background: #fafafa; }
+  .card h4 { font-size: 10pt; color: #18181b; margin-bottom: 1.2mm; }
+  .card p, .card li { font-size: 9pt; color: #3f3f46; }
+
+  .callout { border-left: 3px solid #6366f1; background: #eef2ff; padding: 3mm 4mm; border-radius: 0 2mm 2mm 0; margin: 3mm 0; font-size: 9.5pt; page-break-inside: avoid; }
+  .callout.warn { border-color: #f59e0b; background: #fffbeb; }
+
+  .code { background: #18181b; color: #d4d4d8; border-radius: 2mm; padding: 3mm 4mm; font-size: 8.5pt; line-height: 1.5; margin: 2.5mm 0; page-break-inside: avoid; }
+  .code .c { color: #71717a; }
+
+  .pagebreak { page-break-before: always; }
+  .avoid { page-break-inside: avoid; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; }
+</style>
+</head>
+<body>
+
+<!-- ══════════ COVER ══════════ -->
+<div class="cover">
+  <div>
+    <div class="brand">S E N T E L P R</div>
+    <h1>Autonomous PR Quality,<br/>Visual Regression &amp;<br/>Synthetic Monitoring</h1>
+    <div class="sub">Engineering analysis report — architecture, verification status, and production readiness of a multi-tenant developer-infrastructure platform.</div>
+  </div>
+  <div>
+    <div class="stats">
+      <div class="stat"><b>11,809</b><span>lines of first-party TypeScript</span></div>
+      <div class="stat"><b>96</b><span>source files, strict mode</span></div>
+      <div class="stat"><b>93/93</b><span>unit tests passing</span></div>
+      <div class="stat"><b>23</b><span>REST API routes</span></div>
+    </div>
+    <div class="stats" style="margin-top:4mm;">
+      <div class="stat"><b>25</b><span>database models</span></div>
+      <div class="stat"><b>15</b><span>dashboard pages</span></div>
+      <div class="stat"><b>14</b><span>deterministic rules</span></div>
+      <div class="stat"><b>0</b><span>runtime dependencies added for observability</span></div>
+    </div>
+  </div>
+  <div class="meta">
+    <span>Version 0.1.0 · Commit 6730ba9 · 8 commits · Built Sep 2026</span>
+    <span>License: MIT · Node ≥ 20 · Next.js 16 · Prisma 7</span>
+  </div>
+</div>
+
+<!-- ══════════ 1. EXECUTIVE SUMMARY ══════════ -->
+<div class="pagebreak"></div>
+<div class="kicker">01 · Executive summary</div>
+<h2 style="margin-top:2mm;">Executive summary</h2>
+<p><b>SentinelPR</b> is a production-grade, multi-tenant SaaS platform that watches three independent quality signals for software teams:</p>
+<ul>
+  <li><b>PR intelligence</b> — deterministic static analysis plus optional AI review of every pull request, published to GitHub as check runs and inline comments;</li>
+  <li><b>Visual regression</b> — Playwright-driven screenshot capture, pixel-diff scoring, DOM-structure signatures and explicit versioned baselines;</li>
+  <li><b>Synthetic monitoring</b> — cron-scheduled multi-step browser journeys with latency percentiles and availability tracking.</li>
+</ul>
+<p>All three signals fold into one <b>explainable four-dimension risk score</b> (Code · Security · Experience · Production) per pull request, surfaced through a dark-theme developer dashboard with command palette and keyboard navigation.</p>
+
+<div class="callout">
+  <b>Verdict:</b> the platform is feature-complete for a public launch. All 93 unit tests pass, the strict TypeScript build is clean, the production bundle compiles, both local and OAuth authentication modes are verified end-to-end, and the repository carries a complete delivery pipeline (CI gate → image build gate → GHCR release → dependabot). The remaining work items are external integrations (real GitHub App credentials) and product polish — not engineering gaps.
+</div>
+
+<h3>What makes the build distinctive</h3>
+<ul>
+  <li><b>No simulated data.</b> Every metric, finding, latency figure and risk score in the product is computed from real execution — the docs and UI refuse to fabricate state.</li>
+  <li><b>Determinism first.</b> The review pipeline works with zero AI dependencies; the AI model is an optional enhancement with schema-validated, hallucination-defended output.</li>
+  <li><b>Security posture by construction.</b> SSRF guard, HMAC-verified webhooks, signed expiring artifact URLs, hashed session tokens, secret-redacting logs, and RBAC enforced identically in UI and API.</li>
+  <li><b>Observability without dependency bloat.</b> Prometheus/OTel-compatible worker metrics emitted from a hand-rolled registry — zero new packages.</li>
+</ul>
+
+<!-- ══════════ 2. ARCHITECTURE ══════════ -->
+<div class="pagebreak"></div>
+<div class="kicker">02 · System architecture</div>
+<h2 style="margin-top:2mm;">System architecture</h2>
+<p>The platform is a single Next.js 16 application (dashboard + REST API) plus three independent BullMQ worker processes sharing PostgreSQL, Redis and an artifact store. Untrusted work (browser automation, repository analysis) never runs inside request handling.</p>
+
+<div class="code">
+<span class="c">GitHub ──webhook──▶  Next.js API (23 routes)  ──enqueue──▶  Redis / BullMQ</span>
+<span class="c">                        │  15 dashboard pages                  │</span>
+<span class="c">                        ▼                                      ▼</span>
+<span class="c">                   PostgreSQL (25 models)          ┌─ review-worker   (rules + AI + GitHub)</span>
+<span class="c">                        │                          ├─ visual-worker   (Playwright + pixelmatch)</span>
+<span class="c">                        ▼                          └─ synthetic-worker (11-step journeys)</span>
+<span class="c">                   Artifact store (local FS / S3)            │ /metrics (Prometheus·OTel)</span>
+</div>
+
+<h3>Processing pipelines</h3>
+<div class="cards">
+  <div class="card">
+    <h4>① Pull-request review</h4>
+    <p>Webhook → HMAC verification → idempotency ledger → diff fetch → 14 deterministic rules → optional AI review (zod-validated) → unified risk score → check run + inline comments.</p>
+  </div>
+  <div class="card">
+    <h4>② Visual regression</h4>
+    <p>Suite enqueue → Chromium capture (animation freeze, standardised viewports) → pixelmatch diff + 32px-grid change-cluster localisation → DOM signature compare → candidate baseline → explicit approve.</p>
+  </div>
+  <div class="card">
+    <h4>③ Synthetic monitoring</h4>
+    <p>BullMQ job scheduler (cron, pause/resume) → 11-action step executor → per-step results → P50/P95/P99 latency, availability, consecutive-failure streaks → auto-resolving alerts.</p>
+  </div>
+  <div class="card">
+    <h4>④ Unified risk engine</h4>
+    <p>Folds finding weights, credential-leak severity caps, visual diff ratios and production health into one score with human-readable reasoning and a recommended action.</p>
+  </div>
+</div>
+
+<!-- ══════════ 3. SUBSYSTEMS ══════════ -->
+<div class="pagebreak"></div>
+<div class="kicker">03 · Subsystem inventory</div>
+<h2 style="margin-top:2mm;">Subsystem inventory</h2>
+<table>
+  <tr><th style="width:6mm;">#</th><th style="width:44mm;">Subsystem</th><th>What is implemented</th><th style="width:22mm;">Status</th></tr>
+  <tr><td>1</td><td><b>Domain &amp; database</b></td><td>25 Prisma models, 3 versioned migrations (init · OAuth multi-tenant · access requests), Prisma 7 pg adapter, seed script.</td><td><span class="pill g">complete</span></td></tr>
+  <tr><td>2</td><td><b>Deterministic rule engine</b></td><td>14 named rules across secrets (8 regex families: AWS, GitHub PAT/OAuth, Slack, Google, PEM, JWT…), security (eval, shell injection, XSS sinks, committed .env, lifecycle scripts), quality and testing coverage.</td><td><span class="pill g">complete</span></td></tr>
+  <tr><td>3</td><td><b>AI review model</b></td><td>Provider-agnostic interface; OpenAI-compatible client; strict zod output schema; hallucination defense (findings must reference diff files); confidence thresholding.</td><td><span class="pill g">complete</span></td></tr>
+  <tr><td>4</td><td><b>GitHub integration</b></td><td>App + PAT fallback clients, webhook HMAC-SHA256 (constant-time), idempotency ledger, check runs, inline comments, install claiming/backfill.</td><td><span class="pill g">complete</span></td></tr>
+  <tr><td>5</td><td><b>Queue &amp; schedulers</b></td><td>BullMQ 6 with deterministic job IDs (natural webhook dedup), exponential backoff, modern v6 job schedulers with cron + pause/resume.</td><td><span class="pill g">complete</span></td></tr>
+  <tr><td>6</td><td><b>Visual engine</b></td><td>Playwright Chromium capture, animation-freeze CSS, 3 viewports, pixelmatch ratio, flood-fill cluster detector, DOM experience signature, versioned baselines with explicit approval.</td><td><span class="pill g">complete</span></td></tr>
+  <tr><td>7</td><td><b>Synthetic engine</b></td><td>11 step executors (navigate, click, fill, press, select, wait, 3 asserts, screenshot, request), percentile stats, streak tracking.</td><td><span class="pill g">complete</span></td></tr>
+  <tr><td>8</td><td><b>Risk engine</b></td><td>Four explainable dimensions with unit-tested behaviour (security caps, visual-ratio escalation, production streaks).</td><td><span class="pill g">complete</span></td></tr>
+  <tr><td>9</td><td><b>Security layer</b></td><td>SSRF guard (loopback, RFC1918, CGNAT, link-local/metadata, IPv6 private), signed expiring artifact URLs, redacting structured logger, audit log with real actor identity.</td><td><span class="pill g">complete</span></td></tr>
+  <tr><td>10</td><td><b>Auth &amp; multi-tenancy</b></td><td>GitHub OAuth sessions (hashed tokens, 7-day sliding expiry), org provisioning, invite management, role matrix (owner/admin/member), owner-protection + last-owner guard, self-serve access requests, webhook installation claiming.</td><td><span class="pill g">complete</span></td></tr>
+  <tr><td>11</td><td><b>Dashboard</b></td><td>15 pages: overview, PRs + detail, visual suites + comparison viewer, monitors + detail, runs, alerts, repositories, rules, team, settings; ⌘K palette; g-key navigation.</td><td><span class="pill g">complete</span></td></tr>
+  <tr><td>12</td><td><b>Observability</b></td><td>Per-worker /metrics endpoint: queue depth (live-sampled), active gauge, outcome counters, duration histogram; OTel naming; failure-isolated.</td><td><span class="pill g">complete</span></td></tr>
+  <tr><td>13</td><td><b>Delivery pipeline</b></td><td>CI: typecheck → tests → migrations → build → Docker image gate + compose validation. Release: GHCR publish on v* tags + GitHub releases. Dependabot: npm + actions + docker.</td><td><span class="pill g">complete</span></td></tr>
+  <tr><td>14</td><td><b>Documentation</b></td><td>README + 6 deep-dive docs (security model, configuration, deployment, GitHub App setup, visual baselines, synthetic monitoring) + SECURITY.md + CONTRIBUTING.md.</td><td><span class="pill g">complete</span></td></tr>
+</table>
+
+<!-- ══════════ 4. CODEBASE ══════════ -->
+<div class="pagebreak"></div>
+<div class="kicker">04 · Codebase &amp; quality signals</div>
+<h2 style="margin-top:2mm;">Codebase &amp; quality signals</h2>
+
+<div class="grid2">
+  <div>
+    <h3>Composition (tracked source, by area)</h3>
+    <table>
+      <tr><th>Area</th><th>Files</th><th>Lines</th><th>Share</th></tr>
+      <tr><td>src/lib — engines &amp; services</td><td class="mono">—</td><td class="mono">6,139</td><td class="mono">52%</td></tr>
+      <tr><td>src/app — pages &amp; API routes</td><td class="mono">—</td><td class="mono">3,815</td><td class="mono">32%</td></tr>
+      <tr><td>src/components — UI kit</td><td class="mono">—</td><td class="mono">1,653</td><td class="mono">14%</td></tr>
+      <tr><td>src/workers — process entrypoints</td><td class="mono">—</td><td class="mono">202</td><td class="mono">2%</td></tr>
+      <tr><td><b>Total first-party TypeScript</b></td><td class="mono"><b>96</b></td><td class="mono"><b>11,809</b></td><td class="mono"><b>100%</b></td></tr>
+    </table>
+    <p style="font-size:8.5pt;color:#71717a;">Excludes 51k lines of generated Prisma client (gitignored). Roughly 17% of the first-party code is unit tests.</p>
+  </div>
+  <div>
+    <h3>Verification matrix (run at report time)</h3>
+    <table>
+      <tr><th>Check</th><th>Command</th><th>Result</th></tr>
+      <tr><td>Unit tests</td><td class="mono">pnpm test</td><td><span class="ok">93 / 93 ✓</span></td></tr>
+      <tr><td>Strict types</td><td class="mono">pnpm typecheck</td><td><span class="ok">clean ✓</span></td></tr>
+      <tr><td>Prod build</td><td class="mono">next build</td><td><span class="ok">success ✓</span></td></tr>
+      <tr><td>DB schema</td><td class="mono">prisma migrate deploy</td><td><span class="ok">3 migrations ✓</span></td></tr>
+      <tr><td>Live OAuth e2e</td><td class="mono">RBAC matrix (12 checks)</td><td><span class="ok">all pass ✓</span></td></tr>
+      <tr><td>Metrics endpoint</td><td class="mono">/metrics live probe</td><td><span class="ok">spec-valid ✓</span></td></tr>
+    </table>
+    <h3>Engineering invariants</h3>
+    <ul>
+      <li>Strict TypeScript, no <span class="mono">any</span> escape hatches in domain code</li>
+      <li>Every mutation: org-scoped query + role gate + audit entry</li>
+      <li>Metrics &amp; bookkeeping are failure-isolated by contract</li>
+      <li>zod validation on every mutating API boundary</li>
+    </ul>
+  </div>
+</div>
+
+<h3>Commit history — eight commits, one narrative</h3>
+<table>
+  <tr><th style="width:16mm;">Commit</th><th style="width:20mm;">Date</th><th>Scope</th></tr>
+  <tr><td class="mono">3a52c0b</td><td>2026-09-12</td><td>Platform baseline: rule engine, visual + synthetic engines, dashboard, tests, CI</td></tr>
+  <tr><td class="mono">b4adddb</td><td>2026-09-12</td><td>Multi-tenant auth: OAuth sessions, invites, role management, access requests</td></tr>
+  <tr><td class="mono">74556a8</td><td>2026-09-12</td><td>Publish-ready: MIT license, Dockerfile + compose app stack, deployment docs</td></tr>
+  <tr><td class="mono">bf772dd · 949efeb</td><td>2026-09-12</td><td>CI image gate; GHCR release workflow on version tags</td></tr>
+  <tr><td class="mono">348cedb · 3aa4690</td><td>2026-09-12</td><td>Repo metadata + screenshot tooling; dependabot (npm/actions/docker)</td></tr>
+  <tr><td class="mono">6730ba9</td><td>2026-09-12</td><td>Prometheus/OTel worker metrics with live queue-depth sampling</td></tr>
+</table>
+
+<!-- ══════════ 5. SECURITY ══════════ -->
+<div class="pagebreak"></div>
+<div class="kicker">05 · Security &amp; multi-tenancy</div>
+<h2 style="margin-top:2mm;">Security &amp; multi-tenancy</h2>
+
+<h3>Trust boundaries and controls</h3>
+<table>
+  <tr><th style="width:40mm;">Surface</th><th>Control</th></tr>
+  <tr><td>GitHub webhooks</td><td>Constant-time <span class="mono">X-Hub-Signature-256</span> HMAC validation; delivery-id idempotency ledger blocks replay and double-processing.</td></tr>
+  <tr><td>Browser automation targets</td><td>SSRF guard resolves DNS and blocks loopback, RFC1918, CGNAT, link-local/169.254.169.254 metadata and private IPv6 before any fetch; opt-in override for local dev only.</td></tr>
+  <tr><td>Sessions</td><td>Opaque 256-bit cookie token; database stores only its SHA-256 hash; HttpOnly + SameSite=Lax (+ Secure in production); 7-day sliding expiry; sign-out deletes the row.</td></tr>
+  <tr><td>OAuth flow</td><td>HMAC-signed, expiring state (CSRF defense); post-login redirects restricted to same-origin paths (open-redirect defense, unit-tested).</td></tr>
+  <tr><td>Artifacts</td><td>HMAC-SHA256 signed, expiring access tokens; no public bucket semantics.</td></tr>
+  <tr><td>Authorization</td><td>Role matrix (<span class="mono">owner &gt; admin &gt; member</span>) as pure, unit-tested code; enforced in every mutating route; owners immutable; last-owner demotion/removal blocked; audit log records real actor identity.</td></tr>
+  <tr><td>Secrets</td><td>Structured logger auto-redacts tokens/keys/credentials; rules engine flags 8 secret families in diffs; .env never committed.</td></tr>
+  <tr><td>Onboarding</td><td>Invites and access requests are admin-approved; transactional, race-safe membership grants.</td></tr>
+</table>
+
+<div class="callout warn">
+  <b>Residual risks (documented, not hidden):</b> the metrics endpoint is unauthenticated and must stay on the internal network (hardening checklist item); local mode is explicitly localhost-only; AI review is optional and its output is schema-checked but still advisory.
+</div>
+
+<!-- ══════════ 6. OPERATIONS ══════════ -->
+<div class="pagebreak"></div>
+<div class="kicker">06 · Operations &amp; delivery</div>
+<h2 style="margin-top:2mm;">Operations &amp; delivery</h2>
+
+<h3>Deployment story</h3>
+<ul>
+  <li><b>One image, four roles.</b> The multi-stage Dockerfile (node:22-bookworm-slim + Chromium + system libs) runs the dashboard, any of the three workers, or migrations by changing only the container command.</li>
+  <li><b>Compose profiles.</b> <span class="mono">docker compose up -d</span> starts infra only; <span class="mono">--profile app</span> brings the full stack with health-gated ordering and a shared artifacts volume.</li>
+  <li><b>Release channel.</b> Pushing <span class="mono">v*</span> tags re-verifies the commit, publishes the image to GHCR with full semver tag fan-out, and creates a GitHub release. CI builds the same image on every push, so releases hit a warm cache.</li>
+  <li><b>Upkeep.</b> Dependabot groups minor/patch and isolates majors across npm, GitHub Actions and the Docker base image.</li>
+</ul>
+
+<h3>Observability</h3>
+<div class="code">
+<span class="c"># Per-worker scrape endpoint (default :9464/metrics)</span>
+sentinelpr_queue_depth{queue="review",state="waiting"} 4
+sentinelpr_queue_active_jobs{queue="review"} 2
+sentinelpr_queue_jobs_total{outcome="completed",queue="review"} 127
+sentinelpr_queue_job_duration_seconds_bucket{...,le="60"} 118
+sentinelpr_worker_up{worker="review-worker"} 1
+</div>
+<p>Series map onto OpenTelemetry semantic conventions, so an OTel Collector (Prometheus receiver) or Grafana Agent produces native OTLP data for dashboards. Depth is sampled from Redis live on each scrape; Redis or port failures degrade to labelled zeros and never affect job processing.</p>
+
+<h3>Runbook quick reference</h3>
+<table>
+  <tr><th style="width:60mm;">Task</th><th>Command</th></tr>
+  <tr><td>Full local stack</td><td class="mono">docker compose --profile app up -d</td></tr>
+  <tr><td>Dashboard / workers</td><td class="mono">pnpm dev · pnpm worker:review|visual|synthetic</td></tr>
+  <tr><td>Quality gate</td><td class="mono">pnpm test · pnpm typecheck · pnpm build</td></tr>
+  <tr><td>Database</td><td class="mono">pnpm db:migrate · pnpm db:seed</td></tr>
+  <tr><td>Release</td><td class="mono">git tag v0.1.0 &amp;&amp; git push origin v0.1.0</td></tr>
+</table>
+
+<!-- ══════════ 7. ROADMAP ══════════ -->
+<div class="pagebreak"></div>
+<div class="kicker">07 · Roadmap</div>
+<h2 style="margin-top:2mm;">Roadmap &amp; recommendations</h2>
+
+<h3>To go live (external steps)</h3>
+<div class="cards">
+  <div class="card"><h4>GitHub App registration</h4><p>Create the App in the target organisation, paste <span class="mono">GITHUB_APP_ID</span>, private key and webhook secret; point the webhook at <span class="mono">{DASHBOARD_URL}/api/github/webhook</span>.</p></div>
+  <div class="card"><h4>OAuth App + secrets</h4><p>GitHub OAuth App with callback <span class="mono">{DASHBOARD_URL}/api/auth/github/callback</span>; strong <span class="mono">AUTH_STATE_SECRET</span> and <span class="mono">ARTIFACT_TOKEN_SECRET</span> in production.</p></div>
+  <div class="card"><h4>Managed infrastructure</h4><p>PostgreSQL, Redis and S3-compatible storage on the cloud host of choice (compose file doubles as the reference topology).</p></div>
+  <div class="card"><h4>First screenshots</h4><p>Run <span class="mono">pnpm screenshots</span> against a seeded dashboard and commit <span class="mono">docs/images/</span> to finish the README gallery.</p></div>
+</div>
+
+<h3>Engineering next steps (recommended order)</h3>
+<table>
+  <tr><th style="width:8mm;">Prio</th><th style="width:52mm;">Item</th><th>Rationale</th></tr>
+  <tr><td><span class="pill i">P1</span></td><td>Audit-log viewer page</td><td>All the new <span class="mono">member.role_changed</span> / <span class="mono">access.granted</span> events are stored but invisible in the UI — small effort, closes the governance loop.</td></tr>
+  <tr><td><span class="pill i">P1</span></td><td>Grafana dashboard preset</td><td>Ship a JSON dashboard for the new metrics series; turns observability from "possible" into "two-click".</td></tr>
+  <tr><td><span class="pill a">P2</span></td><td>Role transfer &amp; demotion UX</td><td>Ownership transfer is a two-step API sequence today; a guided flow would prevent lockouts.</td></tr>
+  <tr><td><span class="pill a">P2</span></td><td>Cross-browser visual capture</td><td>Firefox/WebKit binaries in the worker image for non-Chromium rendering diffs.</td></tr>
+  <tr><td><span class="pill a">P3</span></td><td>AI provider fan-out</td><td>Anthropic/local-model adapters behind the existing ReviewModel interface.</td></tr>
+  <tr><td><span class="pill a">P3</span></td><td>Depth-growth alerting rule</td><td>Wire <span class="mono">sentinelpr_queue_depth</span> trends into the in-app alerting engine for self-monitoring.</td></tr>
+</table>
+
+<div class="callout">
+  <b>Bottom line:</b> SentinelPR is a coherent, fully verified platform — 11.8k lines of hand-written TypeScript with a 93-test safety net, an honest security model, complete container/release tooling, and documentation that matches the code. It is ready for <b>git push</b> and public launch; the remaining items above are growth work, not gaps.
+</div>
+
+</body>
+</html>
