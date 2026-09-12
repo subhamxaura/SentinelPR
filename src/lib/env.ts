@@ -115,6 +115,38 @@ export const env = {
   get alertWebhookUrl(): string | undefined {
     return str("ALERT_WEBHOOK_URL");
   },
+
+  auth: {
+    /**
+     * "oauth" = GitHub OAuth sign-in, multi-user. "local" = legacy trusted
+     * single-operator mode. Unset = auto: oauth when client credentials exist,
+     * otherwise local. Resolved by lib/auth/mode.ts.
+     */
+    get configuredMode(): "oauth" | "local" | undefined {
+      const v = str("SENTINEL_AUTH_MODE");
+      return v === "oauth" || v === "local" ? v : undefined;
+    },
+    get githubClientId(): string | undefined {
+      return str("AUTH_GITHUB_CLIENT_ID");
+    },
+    get githubClientSecret(): string | undefined {
+      return str("AUTH_GITHUB_CLIENT_SECRET");
+    },
+    /** HMAC secret for OAuth state + session cookie binding. */
+    get stateSecret(): string | undefined {
+      return str("AUTH_STATE_SECRET");
+    },
+    /**
+     * oauth mode: auto-provision an org for the first user and auto-join
+     * sign-ups with no membership. Defaults to true for self-hosted friendliness.
+     */
+    get allowDefaultOrgSignup(): boolean {
+      return str("AUTH_ALLOW_DEFAULT_ORG_SIGNUP") !== "0";
+    },
+    get oauthReady(): boolean {
+      return !!this.githubClientId && !!this.githubClientSecret;
+    },
+  },
 };
 
 export interface IntegrationStatus {
@@ -130,7 +162,22 @@ export function integrationStatuses(): IntegrationStatus[] {
   const gh = env.github;
   const appParts = [gh.appId, gh.privateKey, gh.webhookSecret];
   const s3 = env.storage.s3;
+  const auth = env.auth;
   return [
+    {
+      id: "auth",
+      label: "Authentication",
+      configured: auth.configuredMode === "oauth" ? auth.oauthReady : true,
+      required: true,
+      detail:
+        auth.configuredMode === "oauth"
+          ? "GitHub OAuth multi-user sign-in with database-backed sessions."
+          : "Local single-operator mode — set AUTH_GITHUB_CLIENT_ID/SECRET (and SENTINEL_AUTH_MODE=oauth) for multi-user access.",
+      missing:
+        auth.configuredMode === "oauth" && !auth.oauthReady
+          ? [!auth.githubClientId && "AUTH_GITHUB_CLIENT_ID", !auth.githubClientSecret && "AUTH_GITHUB_CLIENT_SECRET"].filter(Boolean) as string[]
+          : [],
+    },
     {
       id: "database",
       label: "PostgreSQL",

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { requireOrganization } from "@/lib/web/session";
+import { requirePageOrganization } from "@/lib/web/session";
 import { timeAgo, formatDuration, shortSha, formatDateTime } from "@/lib/web/format";
 import { PageHeader, Card, CardHeader, RunStatusBadge, RiskBadge, SeverityBadge, Mono, StatusBadge, Button } from "@/components/primitives";
 import { KeyValue, ScoreRing } from "@/components/charts";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 export default async function PullRequestDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const org = await requireOrganization();
+  const org = await requirePageOrganization();
 
   const pr = await prisma.pullRequest.findFirst({
     where: { id, repository: { organizationId: org.id } },

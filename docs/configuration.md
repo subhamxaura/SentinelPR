@@ -20,6 +20,21 @@ live configuration state of every subsystem.
 | `SENTINEL_ORG_SLUG` | `default` | Organization resolved server-side for every request. |
 | `SENTINEL_ORG_NAME` | `Default Organization` | Display name. |
 
+## Authentication (multi-user OAuth)
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `SENTINEL_AUTH_MODE` | auto | `oauth` enables GitHub sign-in; `local` pins the legacy single-operator mode. Auto = oauth when client credentials exist. |
+| `AUTH_GITHUB_CLIENT_ID` | — | GitHub OAuth App client id. |
+| `AUTH_GITHUB_CLIENT_SECRET` | — | GitHub OAuth App client secret. |
+| `AUTH_STATE_SECRET` | derived fallback | HMAC secret for signed OAuth state + session binding. Set a strong random value in production. |
+| `AUTH_ALLOW_DEFAULT_ORG_SIGNUP` | `1` | `0` disables auto-joining the default org — access then requires an explicit invite or an admin-approved request from the sign-in screen. |
+
+Setup: create a GitHub **OAuth App** (not an App Installation) at <https://github.com/settings/developers>
+with the callback URL `{DASHBOARD_URL}/api/auth/github/callback`, then set the client id/secret.
+The first signed-in user becomes owner of the default organization; further users auto-join as
+`member` (or need invites when `AUTH_ALLOW_DEFAULT_ORG_SIGNUP=0`).
+
 ## GitHub
 
 | Variable | Description |

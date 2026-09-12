@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { apiError, parseBody } from "@/lib/web/api";
-import { recordAudit, requireOrganization } from "@/lib/web/session";
+import { actorFor, recordAudit, requireMutationRole, requireOrganization } from "@/lib/web/session";
 import { stepsSchema, parseCron } from "@/lib/synth/steps";
 import { validatePublicUrl } from "@/lib/net/guard";
 import { upsertSyntheticSchedule, removeSyntheticSchedule } from "@/lib/queue";
@@ -30,6 +30,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const { id } = await params;
     const body = parseBody(updateSchema, await req.json());
     const org = await requireOrganization();
+    requireMutationRole(org, req.method);
 
     const test = await prisma.syntheticTest.findFirst({ where: { id, organizationId: org.id } });
     if (!test) {
@@ -72,7 +73,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       // Redis unavailable — worker reconciles on next start; UI shows scheduler state.
     }
 
-    await recordAudit(org.id, "user", "synthetic_test.updated", "synthetic_test", id);
+    await recordAudit(org.id, actorFor(org), "synthetic_test.updated", "synthetic_test", id);
     return NextResponse.json({ test: updated });
   } catch (e) {
     return apiError(e);
@@ -85,6 +86,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const { id } = await params;
     const body = parseBody(z.object({ paused: z.boolean() }), await req.json());
     const org = await requireOrganization();
+    requireMutationRole(org, req.method);
 
     const test = await prisma.syntheticTest.findFirst({
       where: { id, organizationId: org.id },
@@ -104,17 +106,18 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     } catch {
       // Redis unavailable — reconciled on worker start.
     }
-    await recordAudit(org.id, "user", body.paused ? "synthetic_test.paused" : "synthetic_test.resumed", "synthetic_test", id);
+    await recordAudit(org.id, actorFor(org), body.paused ? "synthetic_test.paused" : "synthetic_test.resumed", "synthetic_test", id);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return apiError(e);
   }
 }
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     const org = await requireOrganization();
+    requireMutationRole(org, req.method);
     const test = await prisma.syntheticTest.findFirst({ where: { id, organizationId: org.id }, select: { id: true } });
     if (!test) {
       return NextResponse.json({ error: { code: "NOT_FOUND", message: "Test not found", category: "authz" } }, { status: 404 });
@@ -125,7 +128,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       // Redis unavailable; schedule dies with the test row anyway on reconcile.
     }
     await prisma.syntheticTest.delete({ where: { id } });
-    await recordAudit(org.id, "user", "synthetic_test.deleted", "synthetic_test", id);
+    await recordAudit(org.id, actorFor(org), "synthetic_test.deleted", "synthetic_test", id);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return apiError(e);

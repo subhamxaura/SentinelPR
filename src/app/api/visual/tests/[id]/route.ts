@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { apiError, parseBody } from "@/lib/web/api";
-import { requireOrganization } from "@/lib/web/session";
+import { requireMutationRole, requireOrganization } from "@/lib/web/session";
 
 const updateSchema = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -30,6 +30,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const { id } = await params;
     const body = parseBody(updateSchema, await req.json());
     const org = await requireOrganization();
+    requireMutationRole(org, req.method);
 
     const test = await prisma.visualTest.findFirst({ where: { id, suite: { organizationId: org.id } } });
     if (!test) {
@@ -42,10 +43,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 }
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     const org = await requireOrganization();
+    requireMutationRole(org, req.method);
     const test = await prisma.visualTest.findFirst({ where: { id, suite: { organizationId: org.id } }, select: { id: true } });
     if (!test) {
       return NextResponse.json({ error: { code: "NOT_FOUND", message: "Test not found", category: "authz" } }, { status: 404 });

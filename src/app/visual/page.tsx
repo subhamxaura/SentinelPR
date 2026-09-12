@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { requireOrganization } from "@/lib/web/session";
+import { requirePageOrganization } from "@/lib/web/session";
 import { timeAgo } from "@/lib/web/format";
 import { PageHeader, Card, RunStatusBadge, Button } from "@/components/primitives";
 import { EmptyState } from "@/components/states";
@@ -8,7 +8,7 @@ import { CreateSuiteForm } from "@/components/forms";
 export const dynamic = "force-dynamic";
 
 export default async function VisualPage() {
-  const org = await requireOrganization();
+  const org = await requirePageOrganization();
 
   const suites = await prisma.visualSuite.findMany({
     where: { organizationId: org.id },

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { requireOrganization } from "@/lib/web/session";
+import { requirePageOrganization } from "@/lib/web/session";
 import { timeAgo } from "@/lib/web/format";
 import { PageHeader, Card, CardHeader, RunStatusBadge, Mono } from "@/components/primitives";
 import { KeyValue } from "@/components/charts";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 export default async function VisualSuitePage({ params }: { params: Promise<{ suiteId: string }> }) {
   const { suiteId } = await params;
-  const org = await requireOrganization();
+  const org = await requirePageOrganization();
 
   const suite = await prisma.visualSuite.findFirst({
     where: { id: suiteId, organizationId: org.id },

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { requireOrganization } from "@/lib/web/session";
+import { requirePageOrganization } from "@/lib/web/session";
 import { signArtifactToken } from "@/lib/env";
 import { formatDateTime, timeAgo, shortSha } from "@/lib/web/format";
 import { PageHeader, Card, CardHeader, RunStatusBadge, Mono } from "@/components/primitives";
@@ -19,7 +19,7 @@ function artifactUrl(id: string | null | undefined): string | null {
 
 export default async function VisualRunPage({ params }: { params: Promise<{ runId: string }> }) {
   const { runId } = await params;
-  const org = await requireOrganization();
+  const org = await requirePageOrganization();
 
   const run = await prisma.visualRun.findFirst({
     where: { id: runId, suite: { organizationId: org.id } },

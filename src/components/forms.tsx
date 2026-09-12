@@ -487,6 +487,230 @@ export function DeleteTestButton({ testId, kind }: { testId: string; kind: "synt
   );
 }
 
+export function InviteMemberForm({ canInviteOwner }: { canInviteOwner: boolean }) {
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("member");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const result = await post("/api/invites", { email: email.trim(), role });
+    setBusy(false);
+    if (result.ok) {
+      setEmail("");
+      setRole("member");
+      router.refresh();
+    } else {
+      setError(result.error ?? null);
+    }
+  };
+
+  return (
+    <Card className="mb-6">
+      <CardHeader title="Invite a team member" sub="They get access on their next sign-in (or on their next page load if already signed in)." />
+      <form onSubmit={submit} className="flex flex-wrap items-end gap-2 px-4 py-3">
+        <div className="min-w-[240px] flex-1">
+          <Label>GitHub verified email</Label>
+          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teammate@example.com" required />
+        </div>
+        <div className="w-32">
+          <Label>Role</Label>
+          <Select value={role} onChange={(e) => setRole(e.target.value)}>
+            <option value="member">member</option>
+            <option value="admin">admin</option>
+            {canInviteOwner ? <option value="owner">owner</option> : null}
+          </Select>
+        </div>
+        <Button type="submit" variant="primary" disabled={busy || !email.trim()}>
+          {busy ? "Sending…" : "Send invite"}
+        </Button>
+      </form>
+      <ErrorLine error={error} />
+    </Card>
+  );
+}
+
+export function RequestAccessButton() {
+  const [busy, setBusy] = useState(false);
+  const [requested, setRequested] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (requested) {
+    return <SuccessLine>Request sent — an administrator will review it. This page updates once access is granted.</SuccessLine>;
+  }
+
+  return (
+    <span className="inline-flex flex-col items-start gap-1">
+      <Button
+        variant="primary"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setError(null);
+          const result = await post("/api/access-requests");
+          setBusy(false);
+          if (result.ok) setRequested(true);
+          else setError(result.error ?? null);
+        }}
+      >
+        {busy ? "Sending…" : "Request access"}
+      </Button>
+      <ErrorLine error={error} />
+    </span>
+  );
+}
+
+export function DecideAccessRequestButton({ requestId, action }: { requestId: string; action: "approve" | "deny" }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  return (
+    <Button
+      variant={action === "approve" ? "primary" : "ghost"}
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        await post(`/api/access-requests?id=${requestId}`, { action }, "PUT");
+        setBusy(false);
+        router.refresh();
+      }}
+    >
+      {busy ? "…" : action === "approve" ? "Approve" : "Deny"}
+    </Button>
+  );
+}
+
+export function MemberRoleSelect({
+  memberId,
+  currentRole,
+  assignableRoles,
+}: {
+  memberId: string;
+  currentRole: string;
+  assignableRoles: string[];
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const options = assignableRoles.includes(currentRole) ? assignableRoles : [currentRole, ...assignableRoles];
+
+  return (
+    <span className="inline-flex flex-col items-start gap-1">
+      <Select
+        value={currentRole}
+        disabled={busy}
+        onChange={async (e) => {
+          const role = e.target.value;
+          if (role === currentRole) return;
+          setBusy(true);
+          setError(null);
+          const result = await post(`/api/members/${memberId}`, { role }, "PATCH");
+          setBusy(false);
+          if (result.ok) router.refresh();
+          else setError(result.error ?? null);
+        }}
+        className="w-28"
+      >
+        {options.map((r) => (
+          <option key={r} value={r}>
+            {r}
+          </option>
+        ))}
+      </Select>
+      {error ? <span className="font-mono text-[10px] text-red-400">{error}</span> : null}
+    </span>
+  );
+}
+
+export function RemoveMemberButton({ memberId, memberName }: { memberId: string; memberName: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <span className="inline-flex flex-col items-end gap-1">
+      <Button
+        variant="danger"
+        disabled={busy}
+        onClick={async () => {
+          if (!confirming) {
+            setConfirming(true);
+            setTimeout(() => setConfirming(false), 3000);
+            return;
+          }
+          setBusy(true);
+          setError(null);
+          const result = await post(`/api/members/${memberId}`, undefined, "DELETE");
+          setBusy(false);
+          if (result.ok) router.refresh();
+          else setError(result.error ?? null);
+        }}
+      >
+        {confirming ? `Remove ${memberName}?` : busy ? "…" : "Remove"}
+      </Button>
+      {error ? <span className="font-mono text-[10px] text-red-400">{error}</span> : null}
+    </span>
+  );
+}
+
+export function RevokeInviteButton({ inviteId }: { inviteId: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <Button
+      variant="ghost"
+      disabled={busy}
+      onClick={async () => {
+        if (!confirming) {
+          setConfirming(true);
+          setTimeout(() => setConfirming(false), 3000);
+          return;
+        }
+        setBusy(true);
+        await post(`/api/invites?id=${inviteId}`, undefined, "DELETE");
+        setBusy(false);
+        router.refresh();
+      }}
+    >
+      {confirming ? "Click again to revoke" : busy ? "…" : "Revoke"}
+    </Button>
+  );
+}
+
+export function ClaimInstallationButton({ installationId }: { installationId: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  return (
+    <span className="inline-flex items-center gap-2">
+      <Button
+        variant="primary"
+        disabled={busy || done}
+        onClick={async () => {
+          setBusy(true);
+          setError(null);
+          const result = await post(`/api/installations/${installationId}/claim`);
+          setBusy(false);
+          if (result.ok) {
+            setDone(true);
+            router.refresh();
+          } else setError(result.error ?? null);
+        }}
+      >
+        {done ? "Claimed ✓" : busy ? "Claiming…" : "Claim for this organization"}
+      </Button>
+      <ErrorLine error={error} />
+    </span>
+  );
+}
+
 export function AlertActions({ alertId, status }: { alertId: string; status: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);

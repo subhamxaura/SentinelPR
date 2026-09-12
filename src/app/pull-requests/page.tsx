@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { requireOrganization } from "@/lib/web/session";
+import { requirePageOrganization } from "@/lib/web/session";
 import { timeAgo, shortSha } from "@/lib/web/format";
 import { PageHeader, Card, RunStatusBadge, RiskBadge, Mono, StatusBadge } from "@/components/primitives";
 import { EmptyState } from "@/components/states";
@@ -9,7 +9,7 @@ import { env } from "@/lib/env";
 export const dynamic = "force-dynamic";
 
 export default async function PullRequestsPage() {
-  const org = await requireOrganization();
+  const org = await requirePageOrganization();
 
   const [prs, repoCount] = await Promise.all([
     prisma.pullRequest.findMany({

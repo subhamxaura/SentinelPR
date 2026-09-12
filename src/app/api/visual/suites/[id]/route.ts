@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { apiError, parseBody } from "@/lib/web/api";
-import { requireOrganization } from "@/lib/web/session";
+import { requireMutationRole, requireOrganization } from "@/lib/web/session";
 import { validatePublicUrl } from "@/lib/net/guard";
 
 const updateSchema = z.object({
@@ -20,6 +20,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const { id } = await params;
     const body = parseBody(updateSchema, await req.json());
     const org = await requireOrganization();
+    requireMutationRole(org, req.method);
 
     const suite = await prisma.visualSuite.findFirst({ where: { id, organizationId: org.id } });
     if (!suite) {
@@ -34,10 +35,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 }
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     const org = await requireOrganization();
+    requireMutationRole(org, req.method);
     const suite = await prisma.visualSuite.findFirst({ where: { id, organizationId: org.id }, select: { id: true } });
     if (!suite) {
       return NextResponse.json({ error: { code: "NOT_FOUND", message: "Suite not found", category: "authz" } }, { status: 404 });

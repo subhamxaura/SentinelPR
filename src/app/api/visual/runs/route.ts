@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { apiError, parseBody } from "@/lib/web/api";
-import { recordAudit, requireOrganization } from "@/lib/web/session";
+import { actorFor, recordAudit, requireMutationRole, requireOrganization } from "@/lib/web/session";
 import { enqueueVisualRun } from "@/lib/queue";
 
 const createRunSchema = z.object({
@@ -19,6 +19,7 @@ export async function POST(req: Request) {
   try {
     const body = parseBody(createRunSchema, await req.json());
     const org = await requireOrganization();
+    requireMutationRole(org, req.method);
 
     const suite = await prisma.visualSuite.findFirst({ where: { id: body.suiteId, organizationId: org.id } });
     if (!suite) {
@@ -64,7 +65,7 @@ export async function POST(req: Request) {
       );
     }
 
-    await recordAudit(org.id, "user", "visual_run.triggered", "visual_run", run.id);
+    await recordAudit(org.id, actorFor(org), "visual_run.triggered", "visual_run", run.id);
     return NextResponse.json({ runId: run.id }, { status: 202 });
   } catch (e) {
     return apiError(e);

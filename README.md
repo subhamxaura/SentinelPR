@@ -183,6 +183,9 @@ See [docs/security-model.md](docs/security-model.md). Summary:
 
 - PR code is untrusted and is never executed — the review engine only reads diffs via the API.
 - Webhook signature validation, delivery idempotency, and fast-ack response contract.
+- **Multi-user OAuth**: GitHub sign-in with server-side sessions (HttpOnly cookie, hashed token at
+  rest, signed expiring OAuth state), organization memberships with owner/admin/member roles, and
+  member-level write protection on every mutating API route.
 - SSRF guard on every user-supplied URL (scheme allowlist, localhost/metadata hostname blocklist,
   DNS resolution + private-range rejection, documented DNS-rebinding limitation).
 - Secrets never reach the client bundle; artifact access only via signed, expiring URLs;
@@ -192,9 +195,9 @@ See [docs/security-model.md](docs/security-model.md). Summary:
 
 ## Limitations (honest)
 
-- **Local single-tenant mode**: the dashboard resolves one server-side organization; the schema and
-  service layer are multi-tenant-ready but there is no OAuth login yet (documented in the security
-  doc).
+- **Auth modes**: OAuth mode enables true multi-user access; without `AUTH_GITHUB_CLIENT_ID`/
+  `SECRET` the dashboard runs in local single-operator mode with no sign-in (localhost only).
+  Invite management is currently database-level, not UI-level (documented in the security doc).
 - **Local preview builds**: suites target running URLs; building/starting untrusted PR code
   locally is deliberately not wired (secure boundary, documented).
 - **DNS rebinding**: the SSRF guard checks at request time; a pinned-connection client is the

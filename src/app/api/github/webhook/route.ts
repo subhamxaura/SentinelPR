@@ -107,15 +107,22 @@ async function handleEvent(parsed: ReturnType<typeof parseWebhookEvent>): Promis
 async function handleInstallation(parsed: ReturnType<typeof parseWebhookEvent>) {
   if (!parsed.installationId) return;
   const action = parsed.action;
-  const body = parsed as unknown as { sender?: { login?: string } };
+  // Installation.account is the target org/user; sender is whoever clicked install.
+  const body = parsed as unknown as {
+    sender?: { login?: string };
+    installation?: { account?: { login?: string; type?: string } };
+  };
   if (action === "created") {
     await prisma.githubInstallation.upsert({
       where: { installationId: parsed.installationId },
       update: { removedAt: null },
       create: {
         installationId: parsed.installationId,
-        accountLogin: body.sender?.login ?? "unknown",
-        accountType: "Unknown",
+        // Unclaimed: no organization yet. A dashboard admin claims it (and
+        // backfills its repositories) from the Repositories page.
+        organizationId: null,
+        accountLogin: body.installation?.account?.login ?? body.sender?.login ?? "unknown",
+        accountType: body.installation?.account?.type ?? "Unknown",
       },
     });
   } else if (action === "deleted") {
@@ -136,11 +143,20 @@ async function handleInstallationRepos(parsed: ReturnType<typeof parseWebhookEve
   if (!installation) return;
 
   for (const repo of body.repositories_added ?? []) {
+    if (!installation.organizationId) {
+      // Installation not claimed by an organization yet — repositories are
+      // backfilled by the claim action instead of landing in a default org.
+      log.info("Skipping repository for unclaimed installation", {
+        installation: installation.installationId,
+        repo: repo.full_name,
+      });
+      continue;
+    }
     await prisma.repository.upsert({
       where: { githubId: repo.id },
       update: { installationId: installation.id, active: true },
       create: {
-        organizationId: installation.organizationId ?? (await defaultOrgId()),
+        organizationId: installation.organizationId,
         installationId: installation.id,
         githubId: repo.id,
         owner: repo.owner?.login ?? repo.full_name.split("/")[0],
@@ -223,11 +239,4 @@ async function handlePullRequest(parsed: ReturnType<typeof parseWebhookEvent>) {
   await enqueueReviewRun(run.id);
 }
 
-let cachedDefaultOrgId: string | null = null;
-async function defaultOrgId(): Promise<string> {
-  if (cachedDefaultOrgId) return cachedDefaultOrgId;
-  const { resolveOrganization } = await import("@/lib/web/session");
-  const org = await resolveOrganization();
-  cachedDefaultOrgId = org.id;
-  return org.id;
-}
+

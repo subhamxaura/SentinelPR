@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { requireOrganization } from "@/lib/web/session";
+import { requirePageOrganization } from "@/lib/web/session";
 import { timeAgo, shortSha, formatDuration } from "@/lib/web/format";
 import { PageHeader, Card, RunStatusBadge, RiskBadge, Mono } from "@/components/primitives";
 import { EmptyState } from "@/components/states";
@@ -18,7 +18,7 @@ type UnifiedRun = {
 };
 
 export default async function RunsPage() {
-  const org = await requireOrganization();
+  const org = await requirePageOrganization();
 
   const [reviews, visuals, synthetics] = await Promise.all([
     prisma.reviewRun.findMany({

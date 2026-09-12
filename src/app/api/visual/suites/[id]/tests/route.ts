@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { apiError, parseBody } from "@/lib/web/api";
-import { requireOrganization } from "@/lib/web/session";
+import { requireMutationRole, requireOrganization } from "@/lib/web/session";
 
 const createTestSchema = z.object({
   name: z.string().min(1).max(200),
@@ -29,6 +29,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const { id } = await params;
     const body = parseBody(createTestSchema, await req.json());
     const org = await requireOrganization();
+    requireMutationRole(org, req.method);
 
     const suite = await prisma.visualSuite.findFirst({ where: { id, organizationId: org.id }, select: { id: true } });
     if (!suite) {

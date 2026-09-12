@@ -20,6 +20,8 @@ model Organization {
   updatedAt DateTime @updatedAt
 
   members        OrganizationMember[]
+  invites        OrganizationInvite[]
+  accessRequests AccessRequest[]
   installations  GithubInstallation[]
   repositories   Repository[]
   visualSuites   VisualSuite[]
@@ -30,12 +32,35 @@ model Organization {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
+  id         String   @id @default(cuid())
+  email      String   @unique
+  name       String?
+  githubLogin String? @unique // populated by OAuth sign-in
+  avatarUrl  String?
+  createdAt  DateTime @default(now())
 
   memberships OrganizationMember[]
+  sessions    Session[]
+  accessRequests AccessRequest[]
+}
+
+// Server-side session store. The browser holds only an opaque random token
+// (HttpOnly cookie); everything else lives here and expires.
+model Session {
+  id               String   @id @default(cuid())
+  tokenHash        String   @unique // SHA-256 of the opaque cookie token
+  userId           String
+  activeOrgId      String? // last organization the user selected
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+  lastSeenAt       DateTime @default(now())
+  userAgent        String?
+  ipAddressHash    String? // hashed, never raw IPs
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model OrganizationMember {
@@ -49,6 +74,44 @@ model OrganizationMember {
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, userId])
+  @@index([userId])
+}
+
+// Pending invitations: when a user signs in and no membership matches their
+// email, an admin can pre-create a row here to grant access on next sign-in.
+model OrganizationInvite {
+  id             String   @id @default(cuid())
+  organizationId String
+  email          String
+  role           String   @default("member") // owner | admin | member
+  createdAt      DateTime @default(now())
+  acceptedAt     DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, email])
+  @@index([email])
+}
+
+// Self-serve access: signed-in users without membership can request access to
+// the default organization; admins approve or deny from the team page.
+model AccessRequest {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  email          String // denormalized for admin display
+  githubLogin    String?
+  status         String   @default("pending") // pending | approved | denied
+  role           String   @default("member") // role granted on approval
+  createdAt      DateTime @default(now())
+  decidedAt      DateTime?
+  decidedBy      String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId, status])
+  @@index([organizationId, status, createdAt])
   @@index([userId])
 }
 

@@ -51,6 +51,8 @@ export class AppError extends Error {
 export const err = {
   config: (message: string, code = "CONFIG_MISSING") =>
     new AppError({ code, message, category: "config", status: 503 }),
+  unauthorized: (message = "Sign in to continue") =>
+    new AppError({ code: "UNAUTHENTICATED", message, category: "auth", status: 401 }),
   authz: (message = "You do not have access to this resource") =>
     new AppError({ code: "FORBIDDEN", message, category: "authz", status: 403 }),
   github: (message: string, status?: number, retryable = false) =>
