@@ -101,6 +101,16 @@ migrations once per release (a job step, an ECS one-shot task, or the compose se
   database are reachable.
 - Structured JSON logs (with secret redaction) are emitted on stdout by the dashboard and all
   workers — ship them to your log pipeline as-is.
+- **Metrics:** every worker serves Prometheus text exposition at
+  `http://<worker-host>:9464/metrics` (override with `METRICS_PORT`). Series:
+  `sentinelpr_queue_jobs_total{queue,outcome}`, `sentinelpr_queue_active_jobs{queue}`,
+  `sentinelpr_queue_depth{queue,state}` (sampled live from Redis on each scrape),
+  `sentinelpr_queue_job_duration_seconds` (histogram, wall-clock `processedOn`→done), and
+  `sentinelpr_worker_up{worker}`. The naming maps 1:1 onto OpenTelemetry semantic conventions, so
+  an OTel Collector's Prometheus receiver produces OTLP-native series for Grafana/dashboards. In
+  docker compose the ports are exposed but not published to the host; add `ports: ["9464:9464"]`
+  per worker service (or run an OTel Collector on the same network) to scrape them externally.
+  Metrics are failure-isolated: Redis or port errors never affect job processing.
 
 ## 8. Hardening checklist
 
@@ -109,5 +119,7 @@ migrations once per release (a job step, an ECS one-shot task, or the compose se
 - [ ] `SENTINEL_ALLOW_PRIVATE_TARGETS` stays `0` (default) — workers should not reach internal
       networks; run them in an isolated network segment.
 - [ ] Restrict database/Redis ingress to the app/workers.
+- [ ] Restrict `METRICS_PORT` exposure — the scrape endpoint is unauthenticated, network-level
+  metadata only (no secrets in labels), so keep it on the internal worker network.
 - [ ] Rotate the GitHub App private key and webhook secret periodically.
 - [ ] Back up Postgres (it holds sessions, baselines metadata, alerts, audit log).

@@ -39,6 +39,12 @@ function getQueue(name: string): Queue {
   return q;
 }
 
+/** BullMQ job counts by state for a queue — consumed by the metrics sampler. */
+export async function getQueueCounts(queueName: string): Promise<Record<string, number>> {
+  const q = getQueue(queueName);
+  return q.getJobCounts();
+}
+
 async function enqueue(queueName: string, jobName: string, data: unknown, jobId: string): Promise<string | null> {
   const q = getQueue(queueName);
   const opts: JobsOptions = {
