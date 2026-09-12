@@ -14,6 +14,20 @@ Playwright — as one coherent developer-infrastructure product.
 
 ---
 
+## Screenshots
+
+| | |
+| --- | --- |
+| ![Pull request risk overview](docs/images/overview.png) | ![PR detail with findings](docs/images/pr-detail.png) |
+| *Overview — one explainable risk story* | *PR detail — findings with code evidence* |
+| ![Visual regression comparison viewer](docs/images/visual-run.png) | ![Synthetic monitor journey results](docs/images/synthetic-monitor.png) |
+| *Visual regression — side-by-side/overlay/diff modes* | *Synthetic monitoring — step timeline and latency percentiles* |
+
+> The screenshots above are committed from a live instance. Regenerate them against a running
+> dashboard with real data: `pnpm screenshots` (writes to `docs/images/`).
+
+---
+
 ## Architecture
 
 Control plane / execution plane separation. The API orchestrates; workers execute; PostgreSQL holds
@@ -246,6 +260,11 @@ See [docs/security-model.md](docs/security-model.md). Summary:
 
 ## Scripts
 
+> **Screenshots:** start the dashboard (`pnpm dev`) with seeded data, then run `pnpm screenshots`.
+> The script uses Playwright against `SCREENSHOT_BASE_URL` (default `http://localhost:3000`),
+> captures the four core pages in the dark theme, and writes them to `docs/images/` — re-commit
+> the updated files in the same PR as dashboard changes that alter the UI.
+
 | Command | Purpose |
 | --- | --- |
 | `pnpm dev` | Dashboard dev server |
@@ -253,6 +272,7 @@ See [docs/security-model.md](docs/security-model.md). Summary:
 | `pnpm worker:review` / `worker:visual` / `worker:synthetic` | Workers |
 | `pnpm db:migrate` / `db:migrate:dev` / `db:studio` / `db:generate` | Prisma |
 | `pnpm test` / `typecheck` | Verification |
+| `pnpm screenshots` | Regenerate README screenshots from a running dashboard (see below) |
 
 ## Docs
 
