@@ -155,9 +155,6 @@ importers:
         specifier: ^4.5.4
         version: 4.5.4
     devDependencies:
-      '@embedded-postgres/windows-x64':
-        specifier: 17.4.0-beta.15
-        version: 17.4.0-beta.15
       '@tailwindcss/postcss':
         specifier: ^4.3.3
         version: 4.3.3
@@ -283,12 +280,6 @@ packages:
 
   '@electric-sql/pglite@0.4.3':
     resolution: {integrity: sha512-ichuWTgtd4mOM1G4SpyGJa5trT03lWbMypDV0fUXUCXg5hiHqVAz/bZyV68NqmkLB7WcYmj1RMJVSp8HV/v/ZQ==}
-
-  '@embedded-postgres/windows-x64@17.4.0-beta.15':
-    resolution: {integrity: sha512-TBLqq6joTQQgoRB86P339Rj/1EIG0BbdKsrmqci25Y88pwDWZ0vpgdkGExJJ7/u8onCT8tfgcSW3t7yN/WiT8w==}
-    engines: {node: '>=16'}
-    cpu: [x64]
-    os: [win32]
 
   '@emnapi/runtime@1.11.3':
     resolution: {integrity: sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA==}
@@ -2554,8 +2545,6 @@ snapshots:
       '@electric-sql/pglite': 0.4.3
 
   '@electric-sql/pglite@0.4.3': {}
-
-  '@embedded-postgres/windows-x64@17.4.0-beta.15': {}
 
   '@emnapi/runtime@1.11.3':
     dependencies:
