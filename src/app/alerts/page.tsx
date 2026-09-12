@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { requireOrganization } from "@/lib/web/session";
+import { requirePageOrganization } from "@/lib/web/session";
 import { timeAgo, formatDateTime } from "@/lib/web/format";
 import { PageHeader, Card, StatusBadge } from "@/components/primitives";
 import { EmptyState } from "@/components/states";
@@ -8,7 +8,7 @@ import { AlertActions } from "@/components/forms";
 export const dynamic = "force-dynamic";
 
 export default async function AlertsPage() {
-  const org = await requireOrganization();
+  const org = await requirePageOrganization();
 
   const alerts = await prisma.alert.findMany({
     where: { organizationId: org.id },

@@ -38,11 +38,45 @@ without a container boundary is deliberately NOT implemented — see Limitations
 - No secret ever crosses into a client component; API routes return structured errors, never stack
   traces.
 
-## Authorization
+## Authentication & sessions (OAuth mode)
 
-- Every page and API route resolves the acting organization server-side (`resolveOrganization`)
-  and scopes every query by `organizationId`. Client-supplied org/repository/test IDs are always
-  re-validated against that scope before use — a forged ID for another org is a 404, not a leak.
+Two deployment modes exist, resolved by `src/lib/auth/mode.ts`:
+
+- **local** — legacy single trusted operator. `SENTINEL_ORG_SLUG` is bootstrapped on first use and
+  every request acts on it. Suitable for localhost development only.
+- **oauth** — GitHub OAuth sign-in with database-backed sessions. Selected explicitly with
+  `SENTINEL_AUTH_MODE=oauth` or auto-selected when `AUTH_GITHUB_CLIENT_ID`/`SECRET` are set.
+
+OAuth mode guarantees:
+
+- The browser holds only an opaque 256-bit token in an **HttpOnly, SameSite=Lax** cookie (Secure in
+  production). The database stores only its SHA-256 digest; a stolen database backup cannot be
+  replayed into sessions.
+- OAuth `state` is HMAC-signed and expiring (10 minutes) with the same construction as artifact
+  tokens, binding the callback to a browser-initiated flow (CSRF defense). Post-sign-in redirects
+  are restricted to same-origin relative paths.
+- Sessions live in the `Session` table with a 7-day sliding expiry, hashed IP metadata, and
+  user-agent capture. Sign-out deletes the row and the cookie.
+- GitHub identity is matched by **primary verified email** (via `/user/emails`), with the unique
+  GitHub login as a secondary key if the email changes on GitHub's side.
+
+## Authorization (RBAC)
+
+- Every page and API route resolves the acting organization server-side (`requireOrganization` /
+  `requirePageOrganization`) and scopes every query by `organizationId`. Client-supplied
+  org/repository/test IDs are always re-validated against that scope before use — a forged ID for
+  another org is a 404, not a leak.
+- **Roles:** `owner` > `admin` > `member` on `OrganizationMember`. Members may read everything in
+  their org but cannot mutate configuration (create/update/delete suites, monitors, repositories,
+  baselines, or trigger runs). The check is centralized in `requireMutationRole` and enforced by
+  every API route. In local mode the check is a no-op (single trusted operator).
+- **Access provisioning:** users get memberships from pre-created rows, pending
+  `OrganizationInvite` rows (consumed at sign-in), or — unless `AUTH_ALLOW_DEFAULT_ORG_SIGNUP=0` —
+  auto-join the default organization (first user becomes owner). With auto-join disabled and no
+  invite, sign-in lands on an access-pending screen and exposes no data. From there users can
+  **request access** (`POST /api/access-requests`, authenticated by session only): admins see the
+  request on `/team` and approve (membership granted transactionally) or deny it. Requesters and
+  denied users see their status on the sign-in screen; no dashboard data is exposed to them.
 - Artifact bytes (screenshots, diffs, baselines) are never publicly readable: pages mint
   short-lived HMAC-signed URLs; `/api/artifacts/:id` verifies the token binds to the artifact id
   and expiry.
@@ -76,11 +110,29 @@ v1 boundary; production deployments should place workers in a network-isolated e
 
 ## Multi-tenancy status (honest)
 
-The schema is multi-tenant (organizations, members, every domain row scoped by org). The
-deployment currently runs in **local single-tenant mode**: `resolveOrganization()` bootstraps one
-default organization per environment. There is no OAuth session provider yet; replacing that one
-function with a session-backed lookup is the designed upgrade path. Until then, do not expose a
-deployment publicly without putting your own auth (reverse-proxy SSO, mTLS, etc.) in front of it.
+The schema has been multi-tenant from day one (organizations, members, every domain row scoped by
+org). **OAuth mode completes the deployment story:** users authenticate with GitHub, sessions are
+stored server-side, and every query is scoped by membership.
+
+GitHub App installations arrive via webhook **unclaimed** — an organization identity cannot be
+derived from a webhook payload. An admin claims the installation from the Repositories page
+(`POST /api/installations/:id/claim`, admin/owner only), which binds it to exactly one
+organization and backfills its repositories. Until claimed, those repositories remain inactive and
+PR events are skipped rather than leaking into a default tenant.
+
+Residual boundaries to know about:
+
+- In **local** mode there is no authentication at all — keep localhost-only, or put your own auth
+  (reverse-proxy SSO, mTLS) in front.
+- Roles are organization-global; per-resource ACLs (e.g. a member limited to one suite) are not
+  implemented.
+- Team management lives on the `/team` page (admin/owner only). **Invites:** admins may invite
+  `member` and `admin`; only owners may assign `owner`; invites are consumed at sign-in **and**
+  lazily on any subsequent authenticated request. **Role editing** (`PATCH /api/members/:id`) and
+  **removal** (`DELETE`) enforce owner protection: owners are immutable to everyone — to hand over
+  ownership, promote a member to owner and self-demote; the last owner can never be demoted or
+  removed, even by themselves. Members may self-demote (give up admin). Every change is
+  audit-logged with the actor, before and after roles.
 
 ## Prompt-injection stance
 

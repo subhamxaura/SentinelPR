@@ -5,7 +5,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import { apiError, parseBody, withOrg } from "@/lib/web/api";
-import { recordAudit, requireOrganization } from "@/lib/web/session";
+import { actorFor, recordAudit, requireMutationRole, requireOrganization } from "@/lib/web/session";
 import { toAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 
@@ -15,9 +15,9 @@ const addRepoSchema = z.object({
   fullName: z.string().regex(/^[\w.-]+\/[\w.-]+$/, "Must be owner/name"),
 });
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    return await withOrg(async (orgId) => {
+    return await withOrg(req, async (orgId) => {
       const repositories = await prisma.repository.findMany({
         where: { organizationId: orgId },
         orderBy: { createdAt: "desc" },
@@ -50,6 +50,7 @@ export async function POST(req: Request) {
   try {
     const body = parseBody(addRepoSchema, await req.json());
     const org = await requireOrganization();
+    requireMutationRole(org, req.method);
 
     if (!env.github.pat && !env.github.appId) {
       return NextResponse.json(
@@ -78,7 +79,7 @@ export async function POST(req: Request) {
         defaultBranch: repo.default_branch,
       },
     });
-    await recordAudit(org.id, "user", "repository.added", "repository", created.id, { fullName: created.fullName });
+    await recordAudit(org.id, actorFor(org), "repository.added", "repository", created.id, { fullName: created.fullName });
     log.info("Repository added", { repo: created.fullName, mode: env.github.pat ? "pat" : "app" });
     return NextResponse.json({ repository: { id: created.id, fullName: created.fullName } }, { status: 201 });
   } catch (e) {

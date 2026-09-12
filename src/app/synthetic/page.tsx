@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { requireOrganization } from "@/lib/web/session";
+import { requirePageOrganization } from "@/lib/web/session";
 import { timeAgo } from "@/lib/web/format";
 import { PageHeader, Card, RunStatusBadge, Mono } from "@/components/primitives";
 import { EmptyState } from "@/components/states";
@@ -9,7 +9,7 @@ import { CreateSyntheticTestForm } from "@/components/forms";
 export const dynamic = "force-dynamic";
 
 export default async function SyntheticPage() {
-  const org = await requireOrganization();
+  const org = await requirePageOrganization();
 
   const tests = await prisma.syntheticTest.findMany({
     where: { organizationId: org.id },

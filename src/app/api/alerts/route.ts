@@ -4,9 +4,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { apiError, parseBody } from "@/lib/web/api";
-import { requireOrganization } from "@/lib/web/session";
+import { requireMutationRole, requireOrganization } from "@/lib/web/session";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const org = await requireOrganization();
     const alerts = await prisma.alert.findMany({
@@ -26,6 +26,7 @@ export async function PATCH(req: Request) {
   try {
     const body = parseBody(patchSchema, await req.json());
     const org = await requireOrganization();
+    requireMutationRole(org, req.method);
     const url = new URL(req.url);
     const id = url.searchParams.get("id");
     if (!id) {

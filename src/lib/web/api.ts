@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { AppError, toAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
-import { requireOrganization } from "@/lib/web/session";
+import { requireMutationRole, requireOrganization, type OrgContext } from "@/lib/web/session";
 
 const log = logger.child({ module: "api" });
 
@@ -15,9 +15,14 @@ export function apiError(e: unknown): NextResponse {
   return NextResponse.json({ error: appErr.toJSON() }, { status: appErr.status });
 }
 
-export async function withOrg<T>(fn: (orgId: string) => Promise<T>): Promise<T> {
-  const org = await requireOrganization();
-  return fn(org.id);
+/** Resolves the acting org, enforces member-write rules, then runs the handler. */
+export async function withOrg<T>(
+  req: Request,
+  fn: (orgId: string, ctx: OrgContext) => Promise<T>,
+): Promise<T> {
+  const ctx = await requireOrganization();
+  requireMutationRole(ctx, req.method);
+  return fn(ctx.id, ctx);
 }
 
 export function parseBody<S extends z.ZodType>(schema: S, body: unknown): z.output<S> {

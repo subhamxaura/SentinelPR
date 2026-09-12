@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { apiError, parseBody } from "@/lib/web/api";
-import { recordAudit, requireOrganization } from "@/lib/web/session";
+import { actorFor, recordAudit, requireMutationRole, requireOrganization } from "@/lib/web/session";
 import { enqueueReviewRun, getQueueConnection } from "@/lib/queue";
 import { fetchPullRequestData } from "@/lib/github/client";
 import { toAppError } from "@/lib/errors";
@@ -24,6 +24,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const { id } = await params;
     const body = parseBody(reviewSchema, await req.json());
     const org = await requireOrganization();
+    requireMutationRole(org, req.method);
 
     const repository = await prisma.repository.findFirst({
       where: { id, organizationId: org.id },
@@ -99,7 +100,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       );
     }
     void getQueueConnection;
-    await recordAudit(org.id, "user", "review.triggered", "review_run", run.id, { repo: repository.fullName, pullNumber: pr.number });
+    await recordAudit(org.id, actorFor(org), "review.triggered", "review_run", run.id, { repo: repository.fullName, pullNumber: pr.number });
     return NextResponse.json({ runId: run.id }, { status: 202 });
   } catch (e) {
     return apiError(e);

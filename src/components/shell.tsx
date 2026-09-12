@@ -2,6 +2,26 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { Button } from "@/components/primitives";
+
+export interface ShellUser {
+  name: string | null;
+  githubLogin: string | null;
+  avatarUrl: string | null;
+}
+
+export interface ShellMembership {
+  organizationId: string;
+  name: string;
+  role: string;
+}
+
+export interface ShellIdentityProps {
+  user: ShellUser | null;
+  role: string | null;
+  activeOrg: { id: string | null; name: string | null };
+  memberships: ShellMembership[];
+}
 
 interface SearchResult {
   type: string;
@@ -27,6 +47,7 @@ const NAV_SECTIONS: Array<{ heading: string; items: Array<{ label: string; href:
     heading: "Configuration",
     items: [
       { label: "Repositories", href: "/repositories", keys: "" },
+      { label: "Team", href: "/team", keys: "g t" },
       { label: "Rules", href: "/rules", keys: "" },
       { label: "Settings", href: "/settings", keys: "g ," },
     ],
@@ -38,7 +59,7 @@ function isActivePath(href: string, pathname: string): boolean {
   return pathname === href || pathname.startsWith(href + "/");
 }
 
-export function Shell({ children }: { children: ReactNode }) {
+export function Shell({ children, user, role, activeOrg, memberships }: { children: ReactNode } & ShellIdentityProps) {
   const pathname = usePathname() ?? "";
   const [paletteOpen, setPaletteOpen] = useState(false);
 
@@ -57,7 +78,7 @@ export function Shell({ children }: { children: ReactNode }) {
         return;
       }
       if (!typing && Date.now() - lastG < 900) {
-        const map: Record<string, string> = { o: "/", p: "/pull-requests", v: "/visual", s: "/synthetic", r: "/runs", a: "/alerts", ",": "/settings" };
+        const map: Record<string, string> = { o: "/", p: "/pull-requests", v: "/visual", s: "/synthetic", r: "/runs", a: "/alerts", t: "/team", ",": "/settings" };
         const dest = map[e.key];
         if (dest) {
           window.location.href = dest;
@@ -78,6 +99,9 @@ export function Shell({ children }: { children: ReactNode }) {
             <div className="text-[13px] font-semibold leading-tight tracking-tight">SentinelPR</div>
             <div className="text-[10px] leading-tight text-faint">PR quality · visual · synthetic</div>
           </div>
+        </div>
+        <div className="border-t border-line px-2 py-3">
+          <IdentityBar user={user} role={role} activeOrg={activeOrg} memberships={memberships} />
         </div>
         <nav className="flex-1 overflow-y-auto px-2 py-3">
           {NAV_SECTIONS.map((section) => (
@@ -118,9 +142,12 @@ export function Shell({ children }: { children: ReactNode }) {
             <Logo />
             <span className="text-[13px] font-semibold">SentinelPR</span>
           </div>
-          <button onClick={() => setPaletteOpen(true)} className="rounded-md border border-line px-2 py-1 text-xs text-faint">
-            Search
-          </button>
+          <div className="flex items-center gap-2">
+            <IdentityBar user={user} role={role} activeOrg={activeOrg} memberships={memberships} compact />
+            <button onClick={() => setPaletteOpen(true)} className="rounded-md border border-line px-2 py-1 text-xs text-faint">
+              Search
+            </button>
+          </div>
         </div>
         <div className="flex gap-1 overflow-x-auto border-b border-line px-3 py-2 md:hidden">
           {NAV_SECTIONS.flatMap((s) => s.items).map((item) => (
@@ -135,6 +162,77 @@ export function Shell({ children }: { children: ReactNode }) {
       {paletteOpen ? <CommandPalette onClose={() => setPaletteOpen(false)} /> : null}
     </div>
   );
+}
+
+function IdentityBar({
+  user,
+  role,
+  activeOrg,
+  memberships,
+  compact = false,
+}: ShellIdentityProps & { compact?: boolean }) {
+  const router = useRouter();
+
+  if (!user) {
+    return (
+      <div className={`flex ${compact ? "" : "flex-col"} items-center gap-2`}>
+        <a href="/signin" className="w-full">
+          <Button variant="secondary" className="w-full">Sign in</Button>
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`flex ${compact ? "items-center" : "flex-col"} gap-2`}>
+      <div className={`flex items-center gap-2 ${compact ? "" : "px-1"}`}>
+        <Avatar user={user} />
+        <div className="min-w-0">
+          <div className="truncate text-[12px] font-medium leading-tight">{user.name ?? user.githubLogin}</div>
+          <div className="truncate text-[10px] leading-tight text-faint">
+            {role ? `${role} · ` : ""}{user.githubLogin ?? ""}
+          </div>
+        </div>
+      </div>
+      {memberships.length > 1 ? (
+        <select
+          aria-label="Active organization"
+          value={activeOrg.id ?? ""}
+          onChange={async (e) => {
+            const organizationId = e.target.value;
+            await fetch("/api/session", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+            body: JSON.stringify({ organizationId }),
+            }).catch(() => undefined);
+            router.refresh();
+          }}
+          className="w-full rounded-md border border-line bg-surface-2 px-2 py-1 text-[11px] text-muted"
+        >
+          {memberships.map((m) => (
+            <option key={m.organizationId} value={m.organizationId}>
+              {m.name} ({m.role})
+            </option>
+          ))}
+        </select>
+      ) : memberships.length === 1 ? (
+        <div className="truncate px-1 text-[10px] text-faint">{memberships[0].name}</div>
+      ) : null}
+      <form action="/api/auth/signout" method="post" className={compact ? "" : "px-1"}>
+        <button type="submit" className="text-[11px] text-faint hover:text-text">
+          Sign out
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function Avatar({ user }: { user: ShellUser }) {
+  if (user.avatarUrl) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={user.avatarUrl} alt="" width={24} height={24} className="h-6 w-6 rounded-full" />;
+  }
+  return <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent-dim text-[10px] font-semibold text-accent-strong">{(user.name ?? user.githubLogin ?? "?").slice(0, 1).toUpperCase()}</div>;
 }
 
 function Logo() {

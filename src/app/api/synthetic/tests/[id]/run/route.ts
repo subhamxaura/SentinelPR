@@ -3,14 +3,15 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { apiError } from "@/lib/web/api";
-import { recordAudit, requireOrganization } from "@/lib/web/session";
+import { actorFor, recordAudit, requireMutationRole, requireOrganization } from "@/lib/web/session";
 import { enqueueSyntheticRun } from "@/lib/queue";
 
 /** Manual "Run now": create a queued run row and enqueue it. */
-export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     const org = await requireOrganization();
+    requireMutationRole(org, req.method);
 
     const test = await prisma.syntheticTest.findFirst({
       where: { id, organizationId: org.id },
@@ -40,7 +41,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       );
     }
 
-    await recordAudit(org.id, "user", "synthetic_run.triggered", "synthetic_run", run.id);
+    await recordAudit(org.id, actorFor(org), "synthetic_run.triggered", "synthetic_run", run.id);
     return NextResponse.json({ runId: run.id }, { status: 202 });
   } catch (e) {
     return apiError(e);

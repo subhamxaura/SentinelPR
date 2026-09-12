@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { requireOrganization } from "@/lib/web/session";
+import { requirePageOrganization } from "@/lib/web/session";
 import { integrationStatuses } from "@/lib/env";
 import { timeAgo } from "@/lib/web/format";
 import { PageHeader, MetricCard, Card, CardHeader, RunStatusBadge, RiskBadge, StatusBadge, Mono } from "@/components/primitives";
@@ -9,7 +9,7 @@ import { AvailabilityDots } from "@/components/charts";
 export const dynamic = "force-dynamic";
 
 export default async function OverviewPage() {
-  const org = await requireOrganization();
+  const org = await requirePageOrganization();
   const since7d = new Date(Date.now() - 7 * 24 * 3600 * 1000);
 
   const [

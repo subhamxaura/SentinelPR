@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { requireOrganization } from "@/lib/web/session";
+import { requirePageOrganization } from "@/lib/web/session";
 import { timeAgo, formatDateTime, formatDuration } from "@/lib/web/format";
 import { PageHeader, Card, CardHeader, RunStatusBadge, Mono, MetricCard } from "@/components/primitives";
 import { LatencyBars, KeyValue, AvailabilityDots } from "@/components/charts";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 export default async function SyntheticTestPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const org = await requireOrganization();
+  const org = await requirePageOrganization();
 
   const test = await prisma.syntheticTest.findFirst({
     where: { id, organizationId: org.id },

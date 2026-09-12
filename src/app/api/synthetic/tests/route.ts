@@ -4,12 +4,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { apiError, parseBody } from "@/lib/web/api";
-import { recordAudit, requireOrganization } from "@/lib/web/session";
+import { actorFor, recordAudit, requireMutationRole, requireOrganization } from "@/lib/web/session";
 import { stepsSchema, parseCron } from "@/lib/synth/steps";
 import { validatePublicUrl } from "@/lib/net/guard";
 import { upsertSyntheticSchedule } from "@/lib/queue";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const org = await requireOrganization();
     const tests = await prisma.syntheticTest.findMany({
@@ -44,6 +44,7 @@ export async function POST(req: Request) {
   try {
     const body = parseBody(createSchema, await req.json());
     const org = await requireOrganization();
+    requireMutationRole(org, req.method);
 
     await validatePublicUrl(body.baseUrl); // SSRF guard
     if (body.schedule) parseCron(body.schedule.cron); // fail fast on bad cron
@@ -72,7 +73,7 @@ export async function POST(req: Request) {
       }
     }
 
-    await recordAudit(org.id, "user", "synthetic_test.created", "synthetic_test", test.id, { name: test.name });
+    await recordAudit(org.id, actorFor(org), "synthetic_test.created", "synthetic_test", test.id, { name: test.name });
     return NextResponse.json({ test }, { status: 201 });
   } catch (e) {
     return apiError(e);

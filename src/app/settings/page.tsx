@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { requireOrganization } from "@/lib/web/session";
+import { requirePageOrganization } from "@/lib/web/session";
 import { integrationStatuses, env } from "@/lib/env";
 import { PageHeader, Card, CardHeader, StatusBadge, Mono } from "@/components/primitives";
 import { formatDateTime } from "@/lib/web/format";
@@ -7,7 +7,7 @@ import { formatDateTime } from "@/lib/web/format";
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const org = await requireOrganization();
+  const org = await requirePageOrganization();
   const statuses = integrationStatuses();
 
   const [jobCounts, recentDeliveries, queueState] = await Promise.all([

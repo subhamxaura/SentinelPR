@@ -3,17 +3,18 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { apiError } from "@/lib/web/api";
-import { recordAudit, requireOrganization } from "@/lib/web/session";
+import { actorFor, recordAudit, requireMutationRole, requireOrganization } from "@/lib/web/session";
 import { getStorage, artifactKey, sha256 } from "@/lib/storage";
 
 /**
  * Approve a snapshot as the new explicit, versioned baseline.
  * Deliberate action only — baselines are never silently replaced by runs.
  */
-export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     const org = await requireOrganization();
+    requireMutationRole(org, req.method);
 
     const snapshot = await prisma.visualSnapshot.findFirst({
       where: { id, run: { suite: { organizationId: org.id } } },
@@ -66,7 +67,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       await prisma.visualBaseline.update({ where: { id: previous.id }, data: { active: false } }).catch(() => undefined);
     }
 
-    await recordAudit(org.id, "user", "visual_baseline.approved", "visual_test", snapshot.testId, {
+    await recordAudit(org.id, actorFor(org), "visual_baseline.approved", "visual_test", snapshot.testId, {
       baselineVersion: baseline.version,
       snapshotId: snapshot.id,
     });

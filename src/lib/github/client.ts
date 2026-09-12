@@ -61,6 +61,44 @@ export function appInstallationUrl(): string | null {
   return slug ? `https://github.com/apps/${slug}/installations/new` : null;
 }
 
+export interface InstallationRepo {
+  id: number;
+  owner: string;
+  name: string;
+  fullName: string;
+  private: boolean;
+  defaultBranch: string | null;
+}
+
+/** Repositories accessible to an installation (App JWT auth). Used by the claim-and-backfill flow. */
+export async function listInstallationRepositories(installationId: number): Promise<InstallationRepo[]> {
+  const app = getGitHubApp();
+  if (!app) {
+    throw err.config("GitHub App is not configured (GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY).", "GITHUB_NOT_CONFIGURED");
+  }
+  try {
+    const octokit = await app.getInstallationOctokit(installationId);
+    const repos: InstallationRepo[] = [];
+    for (let page = 1; page <= 20; page++) {
+      const { data } = await octokit.rest.apps.listReposAccessibleToInstallation({ per_page: 100, page });
+      repos.push(
+        ...data.repositories.map((r) => ({
+          id: r.id,
+          owner: r.owner.login,
+          name: r.name,
+          fullName: r.full_name,
+          private: r.private,
+          defaultBranch: r.default_branch ?? null,
+        })),
+      );
+      if (data.repositories.length < 100) break;
+    }
+    return repos;
+  } catch (e) {
+    throw toAppError(e);
+  }
+}
+
 const PAGINATION_LIMIT = 100;
 
 export interface GitHubFile {
