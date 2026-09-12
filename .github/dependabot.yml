@@ -1,0 +1,47 @@
+version: 2
+
+updates:
+  # npm dependencies (pnpm lockfile is supported natively).
+  # Minor/patch bumps are grouped into one PR; majors stay separate so
+  # breaking changes get individual review.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions used by CI and the release workflow.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 10
+    groups:
+      actions-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Docker base images (node:22-bookworm-slim in the Dockerfile).
+  # Patch-level base image bumps carry security fixes; group them.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 5
+    groups:
+      docker-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
