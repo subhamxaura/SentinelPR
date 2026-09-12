@@ -1,0 +1,7 @@
+allowBuilds:
+  '@embedded-postgres/windows-x64': set this to true or false
+  '@prisma/engines': true
+  esbuild: true
+  msgpackr-extract: true
+  prisma: true
+nodeLinker: hoisted
