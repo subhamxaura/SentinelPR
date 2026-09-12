@@ -1,0 +1,450 @@
+// SentinelPR — durable state. PostgreSQL via Prisma.
+// Multi-tenant: every domain row hangs off an Organization; API/pages must scope by it.
+
+generator client {
+  provider  = "prisma-client"
+  output    = "../src/generated/prisma"
+  runtime   = "nodejs"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members        OrganizationMember[]
+  installations  GithubInstallation[]
+  repositories   Repository[]
+  visualSuites   VisualSuite[]
+  syntheticTests SyntheticTest[]
+  artifacts      Artifact[]
+  alerts         Alert[]
+  auditLogs      AuditLog[]
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+
+  memberships OrganizationMember[]
+}
+
+model OrganizationMember {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  role           String   @default("member") // owner | admin | member
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+}
+
+model GithubInstallation {
+  id             String    @id @default(cuid())
+  installationId Int       @unique // GitHub App installation id
+  organizationId String?
+  accountLogin   String
+  accountType    String // User | Organization
+  removedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  repositories Repository[]
+
+  @@index([organizationId])
+}
+
+model Repository {
+  id             String   @id @default(cuid())
+  organizationId String
+  installationId String? // set when connected through the GitHub App
+  githubId       Int      @unique
+  owner          String
+  name           String
+  fullName       String
+  private        Boolean  @default(false)
+  defaultBranch  String?
+  // per-repo review config: disabledRules, severityOverrides, maxComments, confidenceThreshold
+  config         Json     @default("{}")
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization  Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  installation  GithubInstallation? @relation(fields: [installationId], references: [id], onDelete: SetNull)
+  pullRequests  PullRequest[]
+  reviewRuns    ReviewRun[]
+  findings      ReviewFinding[]
+  visualSuites  VisualSuite[]
+
+  @@unique([organizationId, fullName])
+  @@index([fullName])
+}
+
+model PullRequest {
+  id           String   @id @default(cuid())
+  repositoryId String
+  number       Int
+  githubId     Int?
+  title        String
+  authorLogin  String?
+  authorAvatar String?
+  state        String   @default("open") // open | closed | merged
+  baseRef      String?
+  headRef      String?
+  headSha      String
+  url          String?
+  additions    Int?
+  deletions    Int?
+  changedFiles Int?
+  createdAt    DateTime @default(now()) // first seen by SentinelPR
+  updatedAt    DateTime @updatedAt
+
+  repository Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  reviewRuns ReviewRun[]
+  visualRuns VisualRun[]
+
+  @@unique([repositoryId, number])
+  @@index([repositoryId, state, updatedAt])
+}
+
+model ReviewRun {
+  id            String    @id @default(cuid())
+  pullRequestId String
+  repositoryId  String
+  headSha       String
+  status        String    @default("queued") // queued | running | success | failure | error
+  trigger       String    @default("webhook") // webhook | manual
+  conclusion    String? // GitHub check conclusion
+  riskLevel     String? // none | low | medium | high | critical
+  riskScore     Int?
+  riskSummary   Json? // explainable signals from the unified risk engine
+  summary       String?
+  stats         Json? // { findings, bySeverity, files }
+  checkRunId    String?
+  error         String?
+  queuedAt      DateTime  @default(now())
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  pullRequest PullRequest     @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+  repository  Repository      @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  findings    ReviewFinding[]
+
+  @@index([repositoryId, createdAt])
+  @@index([pullRequestId, headSha])
+  @@index([status])
+}
+
+model ReviewFinding {
+  id           String  @id @default(cuid())
+  runId        String
+  repositoryId String
+  ruleId       String? // null for AI findings
+  source       String  @default("rule") // rule | ai
+  category     String // correctness|security|performance|maintainability|architecture|testing|style|documentation
+  severity     String // critical|high|medium|low|info
+  confidence   Float   @default(1)
+  kind         String  @default("finding") // finding | warning | observation | recommendation
+  file         String
+  startLine    Int?
+  endLine      Int?
+  title        String
+  description  String
+  evidence     String?
+  suggestion   String?
+  dedupKey     String
+  published    Boolean @default(false) // included in GitHub inline review
+  createdAt    DateTime @default(now())
+
+  run ReviewRun     @relation(fields: [runId], references: [id], onDelete: Cascade)
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, dedupKey])
+  @@index([repositoryId, severity, createdAt])
+  @@index([runId])
+}
+
+model VisualSuite {
+  id                 String   @id @default(cuid())
+  organizationId     String
+  repositoryId       String?
+  name               String
+  baseUrl            String
+  readinessPath      String   @default("/")
+  readinessTimeoutMs Int      @default(30000)
+  env                Json     @default("{}")
+  enabled            Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repository   Repository?   @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
+  tests        VisualTest[]
+  runs         VisualRun[]
+
+  @@index([organizationId])
+}
+
+model VisualTest {
+  id           String   @id @default(cuid())
+  suiteId      String
+  name         String
+  path         String   @default("/")
+  browsers     Json     @default("[\"chromium\"]")
+  viewports    Json     @default("[{\"label\":\"desktop\",\"width\":1280,\"height\":720}]")
+  fullPage     Boolean  @default(false)
+  threshold    Float    @default(0.1) // max allowed pixel-diff ratio 0..1
+  enabled      Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  suite      VisualSuite      @relation(fields: [suiteId], references: [id], onDelete: Cascade)
+  runs       VisualRun[]
+  baselines  VisualBaseline[]
+  snapshots  VisualSnapshot[]
+
+  @@index([suiteId])
+}
+
+model VisualRun {
+  id            String    @id @default(cuid())
+  suiteId       String
+  testId        String? // null = suite-wide run
+  pullRequestId String?
+  commitSha     String?
+  trigger       String    @default("manual") // manual | webhook
+  status        String    @default("queued") // queued | running | passed | failed | error
+  diffRatio     Float? // worst diff ratio in the run
+  error         String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  suite       VisualSuite  @relation(fields: [suiteId], references: [id], onDelete: Cascade)
+  test        VisualTest?  @relation(fields: [testId], references: [id], onDelete: SetNull)
+  pullRequest PullRequest? @relation(fields: [pullRequestId], references: [id], onDelete: SetNull)
+  snapshots   VisualSnapshot[]
+
+  @@index([suiteId, createdAt])
+  @@index([testId, createdAt])
+}
+
+model VisualSnapshot {
+  id                String  @id @default(cuid())
+  runId             String
+  testId            String
+  browser           String
+  viewportLabel     String
+  viewport          Json // { label, width, height }
+  status            String // passed | failed | new | baseline_missing
+  diffRatio         Float?
+  currentArtifactId String?
+  diffArtifactId    String?
+  baselineId        String? // approved baseline it was compared against
+  changedRegions    Json? // [{ x, y, w, h }]
+  domChanges        Json? // structural/experience regressions from DOM signature diff
+  metadata          Json? // { url, userAgent, os }
+  createdAt         DateTime @default(now())
+
+  run             VisualRun       @relation(fields: [runId], references: [id], onDelete: Cascade)
+  test            VisualTest      @relation(fields: [testId], references: [id], onDelete: Cascade)
+  baseline        VisualBaseline? @relation(fields: [baselineId], references: [id], onDelete: SetNull)
+  currentArtifact Artifact?       @relation("currentArtifact", fields: [currentArtifactId], references: [id], onDelete: SetNull)
+  diffArtifact    Artifact?       @relation("diffArtifact", fields: [diffArtifactId], references: [id], onDelete: SetNull)
+
+  @@index([runId])
+  @@index([testId, createdAt])
+}
+
+// Approved baselines are explicit and versioned. Never silently replaced:
+// promoting a new baseline always creates a new version row via the approve action.
+model VisualBaseline {
+  id         String   @id @default(cuid())
+  testId     String
+  browser    String
+  viewportLabel String
+  artifactId String
+  commitSha  String?
+  version    Int      @default(1)
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  test      VisualTest       @relation(fields: [testId], references: [id], onDelete: Cascade)
+  artifact  Artifact         @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+  snapshots VisualSnapshot[]
+
+  @@unique([testId, browser, viewportLabel])
+}
+
+model SyntheticTest {
+  id                     String   @id @default(cuid())
+  organizationId         String
+  name                   String
+  baseUrl                String
+  steps                  Json // validated SyntheticStep[]
+  enabled                Boolean  @default(true)
+  alertLatencyMs         Int? // p95 latency alert threshold
+  maxConsecutiveFailures Int      @default(3)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  schedule     SyntheticSchedule?
+  runs         SyntheticRun[]
+
+  @@index([organizationId])
+}
+
+model SyntheticSchedule {
+  id             String    @id @default(cuid())
+  testId         String    @unique
+  cron           String
+  timezone       String    @default("UTC")
+  paused         Boolean   @default(false)
+  lastEnqueuedAt DateTime?
+  updatedAt      DateTime  @updatedAt
+
+  test SyntheticTest @relation(fields: [testId], references: [id], onDelete: Cascade)
+}
+
+model SyntheticRun {
+  id              String    @id @default(cuid())
+  testId          String
+  trigger         String    @default("schedule") // schedule | manual
+  status          String    @default("queued") // queued | running | passed | failed | error
+  attempt         Int       @default(1)
+  durationMs      Int?
+  failedStepIndex Int?
+  error           String?
+  browser         String    @default("chromium")
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  test  SyntheticTest        @relation(fields: [testId], references: [id], onDelete: Cascade)
+  steps SyntheticStepResult[]
+
+  @@index([testId, createdAt])
+  @@index([status])
+}
+
+model SyntheticStepResult {
+  id                   String  @id @default(cuid())
+  runId                String
+  index                Int
+  type                 String
+  name                 String?
+  status               String // passed | failed | skipped
+  durationMs           Int?
+  error                String?
+  screenshotArtifactId String?
+
+  run                SyntheticRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  screenshotArtifact Artifact?    @relation(fields: [screenshotArtifactId], references: [id], onDelete: SetNull)
+
+  @@index([runId])
+}
+
+// GitHub webhook idempotency: one row per delivery id.
+model WebhookDelivery {
+  id                 String    @id @default(cuid())
+  deliveryId         String    @unique
+  event              String
+  action             String?
+  repositoryFullName String?
+  status             String    @default("received") // received | processed | skipped | failed
+  error              String?
+  createdAt          DateTime  @default(now())
+  processedAt        DateTime?
+
+  @@index([createdAt])
+}
+
+// Binary artifacts live in object storage (S3/MinIO) or the local FS driver.
+// Postgres stores metadata only.
+model Artifact {
+  id             String   @id @default(cuid())
+  organizationId String
+  kind           String // screenshot | baseline | diff | trace | video | log
+  storageKey     String   @unique
+  contentType    String
+  sizeBytes      Int
+  sha256         String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  currentSnapshots      VisualSnapshot[]      @relation("currentArtifact")
+  diffSnapshots         VisualSnapshot[]      @relation("diffArtifact")
+  visualBaselines       VisualBaseline[]
+  syntheticStepResults  SyntheticStepResult[]
+}
+
+model JobRecord {
+  id         String    @id @default(cuid())
+  queue      String
+  jobId      String?
+  type       String
+  status     String    @default("queued") // queued | active | completed | failed
+  refType    String? // review-run | visual-run | synthetic-run
+  refId      String?
+  error      String?
+  createdAt  DateTime  @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  @@index([queue, createdAt])
+  @@index([refId])
+}
+
+model Alert {
+  id             String    @id @default(cuid())
+  organizationId String
+  type           String // high_risk_pr | security_finding | visual_regression | synthetic_failure | consecutive_failures | latency_threshold
+  severity       String // info | warning | critical
+  title          String
+  body           String?
+  entityType     String?
+  entityId       String?
+  dedupKey       String?
+  channels       Json      @default("[\"in_app\"]")
+  status         String    @default("open") // open | acknowledged | resolved
+  createdAt      DateTime  @default(now())
+  resolvedAt     DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, dedupKey])
+  @@index([organizationId, status, createdAt])
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  actor          String // system | user:<id> | webhook
+  action         String
+  targetType     String?
+  targetId       String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+}
