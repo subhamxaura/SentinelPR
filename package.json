@@ -2,6 +2,10 @@
   "name": "sentinelpr",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "packageManager": "pnpm@12.3.4",
   "pnpm": {
     "onlyBuiltDependencies": [

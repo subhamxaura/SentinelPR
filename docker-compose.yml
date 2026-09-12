@@ -60,7 +60,123 @@ services:
       mc mb --ignore-existing local/sentinelpr &&
       echo 'Bucket sentinelpr ready'"
 
+  # ── Full application stack (opt-in): docker compose --profile app up -d ──
+  # Bare `docker compose up -d` still starts only the infrastructure above.
+  migrate:
+    build: .
+    profiles: ["app"]
+    container_name: sentinelpr-migrate
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://sentinel:sentinel@postgres:5432/sentinelpr?schema=public
+    command: ["pnpm", "db:migrate"]
+
+  app:
+    build: .
+    profiles: ["app"]
+    container_name: sentinelpr-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://sentinel:sentinel@postgres:5432/sentinelpr?schema=public
+      REDIS_URL: redis://redis:6379
+      DASHBOARD_URL: http://localhost:3000
+      ARTIFACT_DRIVER: local
+      ARTIFACT_LOCAL_DIR: /app/.data/artifacts
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "3000:3000"
+    volumes:
+      - app-artifacts:/app/.data/artifacts
+    restart: unless-stopped
+
+  worker-review:
+    build: .
+    profiles: ["app"]
+    container_name: sentinelpr-worker-review
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://sentinel:sentinel@postgres:5432/sentinelpr?schema=public
+      REDIS_URL: redis://redis:6379
+      DASHBOARD_URL: http://localhost:3000
+      ARTIFACT_DRIVER: local
+      ARTIFACT_LOCAL_DIR: /app/.data/artifacts
+    env_file:
+      - path: .env
+        required: false
+    command: ["pnpm", "worker:review"]
+    volumes:
+      - app-artifacts:/app/.data/artifacts
+    restart: unless-stopped
+
+  worker-visual:
+    build: .
+    profiles: ["app"]
+    container_name: sentinelpr-worker-visual
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://sentinel:sentinel@postgres:5432/sentinelpr?schema=public
+      REDIS_URL: redis://redis:6379
+      DASHBOARD_URL: http://localhost:3000
+      ARTIFACT_DRIVER: local
+      ARTIFACT_LOCAL_DIR: /app/.data/artifacts
+    env_file:
+      - path: .env
+        required: false
+    command: ["pnpm", "worker:visual"]
+    volumes:
+      - app-artifacts:/app/.data/artifacts
+    restart: unless-stopped
+
+  worker-synthetic:
+    build: .
+    profiles: ["app"]
+    container_name: sentinelpr-worker-synthetic
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://sentinel:sentinel@postgres:5432/sentinelpr?schema=public
+      REDIS_URL: redis://redis:6379
+      DASHBOARD_URL: http://localhost:3000
+      ARTIFACT_DRIVER: local
+      ARTIFACT_LOCAL_DIR: /app/.data/artifacts
+    env_file:
+      - path: .env
+        required: false
+    command: ["pnpm", "worker:synthetic"]
+    volumes:
+      - app-artifacts:/app/.data/artifacts
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   redis-data:
   minio-data:
+  app-artifacts:
