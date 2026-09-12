@@ -36,7 +36,8 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules",
-    "src/generated"
-  ]
+  "node_modules",
+  "src/generated",
+  "scripts/dev-postgres.ts"
+]
 }
