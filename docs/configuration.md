@@ -72,6 +72,12 @@ The first signed-in user becomes owner of the default organization; further user
 | `SENTINEL_ALLOW_PRIVATE_TARGETS` | `0` | Allow localhost/private targets for visual suites & synthetic monitors. **Local dev only.** |
 | `ALERT_WEBHOOK_URL` | — | Outgoing JSON POST for alert fan-out (Slack-compatible shape). |
 
+## Worker metrics
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `METRICS_PORT` | `9464` | Per-worker Prometheus exposition port (`/metrics`): queue depth, active jobs, job totals and duration histograms. Ingest with an OTel Collector (Prometheus receiver), Prometheus, or Grafana Agent. Failure-isolated — never affects job processing. |
+
 ## Repository-level review config
 
 Stored as JSON on each repository row (see the Repositories page):

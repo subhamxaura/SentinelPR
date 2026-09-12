@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/db";
 import { requirePageOrganization } from "@/lib/web/session";
 import { integrationStatuses, env } from "@/lib/env";
+import { authMode } from "@/lib/auth/mode";
+import { METRICS_DEFAULTS } from "@/lib/metrics/server";
 import { PageHeader, Card, CardHeader, StatusBadge, Mono } from "@/components/primitives";
 import { formatDateTime } from "@/lib/web/format";
 
@@ -68,6 +70,12 @@ export default async function SettingsPage() {
                 ))
               )}
             </div>
+            <div className="mt-3 border-t border-line pt-2.5 text-[12px] text-muted">
+              Each worker serves Prometheus-format metrics (queue depth, active jobs, job duration) at{" "}
+              <Mono className="text-xs">http://&lt;worker-host&gt;:{METRICS_DEFAULTS.port}{METRICS_DEFAULTS.path}</Mono> —
+              ingestible by an OpenTelemetry Collector (Prometheus receiver) or Grafana Agent. Override the port with{" "}
+              <Mono className="text-xs">METRICS_PORT</Mono>.
+            </div>
           </div>
         </Card>
 
@@ -109,7 +117,8 @@ export default async function SettingsPage() {
       </Card>
 
       <p className="mt-4 text-xs text-faint">
-        Organization: {org.name} (<Mono>{org.slug}</Mono>) — local single-tenant mode; see docs/security-model.md.
+        Organization: {org.name} (<Mono>{org.slug}</Mono>) — auth mode: <Mono>{authMode()}</Mono>;
+        see docs/security-model.md.
       </p>
     </div>
   );
