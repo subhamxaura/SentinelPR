@@ -40,9 +40,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No `version` input: the action reads packageManager from package.json,
+      # keeping CI on exactly the pinned pnpm release.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - uses: actions/setup-node@v4
         with:

@@ -86,10 +86,21 @@ Key invariants:
 - Metrics: availability, P50/P95/P99, average, consecutive failures. Alerts on failure, consecutive
   failures, latency threshold; auto-resolve on recovery. In-app + outgoing webhook channels.
 
+**Multi-tenant auth & team management**
+- GitHub OAuth sign-in with server-side sessions: HttpOnly cookie, token stored only as a SHA-256
+  digest, signed expiring OAuth state, 7-day sliding expiry, org switching.
+- Organizations with owner > admin > member roles: members read; only admins mutate. Every
+  mutating API route is role-checked and audit-logged with the acting user.
+- Closed-loop onboarding from the **Team** page: invite members by GitHub verified email, approve
+  or deny self-serve access requests, edit or revoke roles — with owner protection (owners are
+  immutable; the last owner cannot be demoted or removed).
+- GitHub App installations arrive unclaimed via webhook and are bound to exactly one organization
+  by an explicit admin claim that backfills their repositories.
+
 **Dashboard**
 - Overview, Pull Requests (+ rich per-PR detail with risk breakdown and findings), Visual suites
   and comparison viewer, Synthetic monitors (journey builder, metrics, history), unified Runs,
-  Alerts, Repositories (with manual review trigger), Rules registry, Settings with honest
+  Alerts, Repositories (with manual review trigger), Team, Rules registry, Settings with honest
   configuration state (Redis live probe, webhook delivery ledger, job history).
 - Command palette (⌘K / `/`), `g`-prefixed keyboard navigation, dark zinc/indigo design system,
   responsive, keyboard-accessible.
@@ -135,6 +146,21 @@ Visual + synthetic need no GitHub credentials:
 3. **Visual Regression** → *New suite* pointing at any URL → add a test → *Run* → approve the
    baseline → change the page → run again → inspect the diff.
 
+## User sign-in (OAuth)
+
+Out of the box the dashboard runs in local single-operator mode (no auth, localhost only). For
+multi-user access:
+
+1. Create a GitHub **OAuth App** at <https://github.com/settings/developers> with callback
+   `{DASHBOARD_URL}/api/auth/github/callback`.
+2. Set `AUTH_GITHUB_CLIENT_ID` and `AUTH_GITHUB_CLIENT_SECRET` (mode auto-switches to OAuth), or
+   pin `SENTINEL_AUTH_MODE=oauth`. Set a strong `AUTH_STATE_SECRET` in production.
+3. The first signed-in user becomes owner of the default organization; further users auto-join as
+   members (or require invites/requests when `AUTH_ALLOW_DEFAULT_ORG_SIGNUP=0`). Manage the team on
+   `/team`.
+
+See [docs/configuration.md](docs/configuration.md) and [docs/security-model.md](docs/security-model.md).
+
 ## GitHub App setup
 
 See [docs/github-app-setup.md](docs/github-app-setup.md) for the full walkthrough (manifest flow,
@@ -162,6 +188,19 @@ Every variable is documented with defaults in [.env.example](.env.example). High
 | `ARTIFACT_TOKEN_SECRET` | recommended | signing key for artifact URLs |
 | `SENTINEL_ALLOW_PRIVATE_TARGETS` | dev only | allow localhost targets for visual/synthetic |
 | `ALERT_WEBHOOK_URL` | optional | outgoing alert fan-out |
+
+## Deployment
+
+One image runs everything — dashboard, workers, or migrations — selected by the container command:
+
+```bash
+docker build -t sentinelpr .
+docker compose --profile app up -d   # full local stack: infra + migrations + app + workers
+```
+
+The image includes Chromium for the visual/synthetic workers. Managed Postgres/Redis/S3 work out of
+the box (connection-string URLs only). See [docs/deployment.md](docs/deployment.md) for the
+production topology, secrets, and hardening checklist.
 
 ## Testing & verification
 
@@ -197,7 +236,7 @@ See [docs/security-model.md](docs/security-model.md). Summary:
 
 - **Auth modes**: OAuth mode enables true multi-user access; without `AUTH_GITHUB_CLIENT_ID`/
   `SECRET` the dashboard runs in local single-operator mode with no sign-in (localhost only).
-  Invite management is currently database-level, not UI-level (documented in the security doc).
+  Roles are org-global (no per-resource ACLs); ownership transfer is promote-then-self-demote.
 - **Local preview builds**: suites target running URLs; building/starting untrusted PR code
   locally is deliberately not wired (secure boundary, documented).
 - **DNS rebinding**: the SSRF guard checks at request time; a pinned-connection client is the
@@ -217,11 +256,22 @@ See [docs/security-model.md](docs/security-model.md). Summary:
 
 ## Docs
 
+- [Deployment guide](docs/deployment.md)
 - [GitHub App setup](docs/github-app-setup.md)
 - [Security model](docs/security-model.md)
 - [Visual baselines](docs/visual-baselines.md)
 - [Synthetic monitoring & scheduling](docs/synthetic-monitoring.md)
 - [Configuration reference](docs/configuration.md)
+
+## Contributing & security
+
+PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, architecture map, and the review
+checklist. Security vulnerabilities: please use private reporting per [SECURITY.md](SECURITY.md),
+not public issues.
+
+## License
+
+[MIT](LICENSE)
 
 ## Demo script (portfolio)
 

@@ -1,0 +1,2 @@
+# Placeholder so the production image can COPY the conventional public/ dir.
+# Static assets (icons, fonts fallbacks) can live here.
