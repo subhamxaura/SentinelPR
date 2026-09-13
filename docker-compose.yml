@@ -31,7 +31,7 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     container_name: sentinelpr-minio
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
@@ -50,7 +50,7 @@ services:
 
   # One-shot bucket creation for MinIO
   minio-setup:
-    image: minio/mc:latest
+    image: quay.io/minio/mc:latest
     depends_on:
       minio:
         condition: service_healthy
