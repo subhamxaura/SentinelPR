@@ -122,8 +122,8 @@ importers:
         specifier: ^6.3.4
         version: 6.3.4(ioredis@5.11.1)(pg@8.23.0)
       dotenv:
-        specifier: ^17.3.1
-        version: 17.4.2
+        specifier: ^18.0.0
+        version: 18.0.1
       ioredis:
         specifier: ^5.10.0
         version: 5.11.1
@@ -1606,6 +1606,11 @@ packages:
   dotenv@17.4.2:
     resolution: {integrity: sha512-nI4U3TottKAcAD9LLud4Cb7b2QztQMUEfHbvhTH09bqXTxnSie8WnjPALV/WMCrJZ6UV/qHJ6L03OqO3LcdYZw==}
     engines: {node: '>=12'}
+
+  dotenv@18.0.1:
+    resolution: {integrity: sha512-0eR4m4D/jH5eaI3evo2ZqqMii5mrTCR12v12VChdie6O1gPHs7XAjzTep0CWc1Bd+oNx3vVfbi734dK4zghigw==}
+    engines: {node: '>=12'}
+    hasBin: true
 
   effect@3.20.0:
     resolution: {integrity: sha512-qMLfDJscrNG8p/aw+IkT9W7fgj50Z4wG5bLBy0Txsxz8iUHjDIkOgO3SV0WZfnQbNG2VJYb0b+rDLMrhM4+Krw==}
@@ -3644,6 +3649,8 @@ snapshots:
   detect-libc@2.1.2: {}
 
   dotenv@17.4.2: {}
+
+  dotenv@18.0.1: {}
 
   effect@3.20.0:
     dependencies:
