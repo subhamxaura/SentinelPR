@@ -5,7 +5,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { apiError, parseBody } from "@/lib/web/api";
 import { actorFor, recordAudit, requireMutationRole, requireOrganization } from "@/lib/web/session";
-import { stepsSchema, parseCron } from "@/lib/synth/steps";
+import { stepsSchema, parseCron, parseTimezone } from "@/lib/synth/steps";
 import { validatePublicUrl } from "@/lib/net/guard";
 import { upsertSyntheticSchedule, removeSyntheticSchedule } from "@/lib/queue";
 
@@ -37,6 +37,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       return NextResponse.json({ error: { code: "NOT_FOUND", message: "Test not found", category: "authz" } }, { status: 404 });
     }
     if (body.baseUrl) await validatePublicUrl(body.baseUrl);
+    const schedule = body.schedule
+      ? { cron: parseCron(body.schedule.cron), timezone: parseTimezone(body.schedule.timezone) }
+      : null;
 
     const updated = await prisma.syntheticTest.update({
       where: { id },
@@ -47,26 +50,18 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
         ...(body.alertLatencyMs !== undefined ? { alertLatencyMs: body.alertLatencyMs } : {}),
         ...(body.maxConsecutiveFailures !== undefined ? { maxConsecutiveFailures: body.maxConsecutiveFailures } : {}),
-        ...(body.schedule
-          ? {
-              schedule: {
-                upsert: {
-                  create: { cron: body.schedule.cron, timezone: body.schedule.timezone },
-                  update: { cron: body.schedule.cron, timezone: body.schedule.timezone },
-                },
-              },
-            }
-          : {}),
+        ...(schedule ? { schedule: { upsert: { create: schedule, update: schedule } } } : {}),
         ...(body.schedule === null ? { schedule: { delete: true } } : {}),
       },
       include: { schedule: true },
     });
 
-    // Sync Redis scheduler with the DB state (DB is source of truth).
+    // Sync Redis scheduler with the DB state (DB is source of truth). Re-enabling
+    // a test must restore a schedule that was removed when it was disabled.
     try {
-      if (updated.schedule && !updated.schedule.paused && updated.enabled && body.schedule) {
+      if (updated.schedule && !updated.schedule.paused && updated.enabled) {
         await upsertSyntheticSchedule(updated.id, updated.schedule.cron, updated.schedule.timezone);
-      } else if (body.schedule === null || updated.enabled === false) {
+      } else {
         await removeSyntheticSchedule(updated.id);
       }
     } catch {
