@@ -30,9 +30,37 @@ export interface WorkerMetrics {
   setActiveJobs: (n: number) => void;
 }
 
-const port = Number(process.env.METRICS_PORT ?? 9464);
+export const DEFAULT_METRICS_PORTS: Record<string, number> = {
+  "review-worker": 9464,
+  "visual-worker": 9465,
+  "synthetic-worker": 9466,
+};
 
-export function startWorkerMetrics(opts: { queueName: string; workerName: string }): WorkerMetrics {
+export function resolveMetricsPort(workerName: string, explicitPort?: number): number {
+  if (explicitPort !== undefined && Number.isFinite(explicitPort) && explicitPort > 0) {
+    return explicitPort;
+  }
+  const envVar = `${workerName.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_METRICS_PORT`;
+  if (process.env[envVar]) {
+    const val = Number(process.env[envVar]);
+    if (Number.isFinite(val) && val > 0) return val;
+  }
+  if (process.env.METRICS_PORT) {
+    const base = Number(process.env.METRICS_PORT);
+    if (Number.isFinite(base) && base > 0) {
+      const offset = workerName === "visual-worker" ? 1 : workerName === "synthetic-worker" ? 2 : 0;
+      return base + offset;
+    }
+  }
+  return DEFAULT_METRICS_PORTS[workerName] ?? 9464;
+}
+
+export function startWorkerMetrics(opts: {
+  queueName: string;
+  workerName: string;
+  port?: number;
+}): WorkerMetrics {
+  const port = resolveMetricsPort(opts.workerName, opts.port);
   const registry = createRegistry();
   let active = 0;
 
@@ -72,9 +100,20 @@ export function startWorkerMetrics(opts: { queueName: string; workerName: string
       });
   });
 
-  server.on("error", (err) => {
+  server.on("error", (err: NodeJS.ErrnoException) => {
     // A port conflict must never kill job processing — log and continue.
-    log.error("Metrics server error (job processing continues)", { error: err.message });
+    if (err.code === "EADDRINUSE") {
+      log.warn("Metrics port already in use, job processing continues without metrics server", {
+        port,
+        worker: opts.workerName,
+      });
+    } else {
+      log.error("Metrics server error (job processing continues)", {
+        error: err.message,
+        port,
+        worker: opts.workerName,
+      });
+    }
   });
 
   server.listen(port);
