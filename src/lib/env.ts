@@ -114,9 +114,16 @@ export const env = {
     },
   },
 
-  /** Artifact URL signing secret — stable fallback derived from DATABASE_URL. */
+  /** Artifact URL signing secret. Production must configure a dedicated value. */
   get tokenSecret(): string {
-    return str("ARTIFACT_TOKEN_SECRET") ?? `fallback:${str("DATABASE_URL") ?? "none"}`;
+    const configured = str("ARTIFACT_TOKEN_SECRET");
+    if (configured) return configured;
+    const stateSecret = str("AUTH_STATE_SECRET") ?? str("AUTH_SECRET");
+    if (stateSecret) return `artifact:${stateSecret}`;
+    if (str("NODE_ENV") === "production") {
+      throw new Error("ARTIFACT_TOKEN_SECRET or AUTH_STATE_SECRET is required in production.");
+    }
+    return "sentinelpr-local-artifact-token";
   },
 
   get allowPrivateTargets(): boolean {
@@ -145,7 +152,7 @@ export const env = {
     },
     /** HMAC secret for OAuth state + session cookie binding. */
     get stateSecret(): string | undefined {
-      return str("AUTH_STATE_SECRET");
+      return str("AUTH_STATE_SECRET") ?? str("AUTH_SECRET");
     },
     /**
      * oauth mode: auto-provision an org for the first user and auto-join
@@ -251,24 +258,33 @@ export function integrationStatuses(): IntegrationStatus[] {
   ];
 }
 
-export function signArtifactToken(payload: { artifactId: string; exp: number }): string {
+export function signArtifactToken(payload: { artifactId: string; organizationId: string; exp: number }): string {
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = createHmac("sha256", env.tokenSecret).update(body).digest("base64url");
   return `${body}.${sig}`;
 }
 
-export function verifyArtifactToken(token: string): { artifactId: string } | null {
+export function verifyArtifactToken(token: string): { artifactId: string; organizationId: string } | null {
   const [body, sig] = token.split(".");
   if (!body || !sig) return null;
   const expected = createHmac("sha256", env.tokenSecret).update(body).digest("base64url");
   if (sig.length !== expected.length || !timingSafeEqualStr(sig, expected)) return null;
   try {
     const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as {
-      artifactId: string;
-      exp: number;
+      artifactId?: unknown;
+      organizationId?: unknown;
+      exp?: unknown;
     };
-    if (!payload.exp || Date.now() > payload.exp) return null;
-    return { artifactId: payload.artifactId };
+    if (
+      typeof payload.artifactId !== "string" ||
+      typeof payload.organizationId !== "string" ||
+      typeof payload.exp !== "number" ||
+      !Number.isFinite(payload.exp) ||
+      Date.now() > payload.exp
+    ) {
+      return null;
+    }
+    return { artifactId: payload.artifactId, organizationId: payload.organizationId };
   } catch {
     return null;
   }

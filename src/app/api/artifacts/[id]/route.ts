@@ -22,17 +22,25 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       return new Response("Forbidden", { status: 403 });
     }
 
-    const artifact = await prisma.artifact.findUnique({ where: { id } });
+    const artifact = await prisma.artifact.findFirst({
+      where: { id, organizationId: verified.organizationId },
+    });
     if (!artifact) return new Response("Not found", { status: 404 });
 
     const storage = getStorage();
     const bytes = await storage.get(artifact.storageKey);
+
+    const SAFE_INLINE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+    const isSafeInline = SAFE_INLINE_TYPES.has(artifact.contentType.toLowerCase());
+
     return new Response(new Uint8Array(bytes), {
       headers: {
         "content-type": artifact.contentType,
         "content-length": String(bytes.length),
-        "cache-control": "private, max-age=3600",
-        "content-disposition": "inline",
+        "cache-control": "private, max-age=3600, no-transform",
+        "content-disposition": isSafeInline ? "inline" : "attachment",
+        "x-content-type-options": "nosniff",
+        "content-security-policy": "default-src 'none'; sandbox",
       },
     });
   } catch (e) {

@@ -11,9 +11,9 @@ import { ApproveBaselineButton } from "@/components/forms";
 export const dynamic = "force-dynamic";
 
 /** Mint short-lived signed URLs — artifact bytes are never publicly readable. */
-function artifactUrl(id: string | null | undefined): string | null {
+function artifactUrl(organizationId: string, id: string | null | undefined): string | null {
   if (!id) return null;
-  const token = signArtifactToken({ artifactId: id, exp: Date.now() + 2 * 3600 * 1000 });
+  const token = signArtifactToken({ artifactId: id, organizationId, exp: Date.now() + 2 * 3600 * 1000 });
   return `/api/artifacts/${id}?t=${token}`;
 }
 
@@ -47,9 +47,9 @@ export default async function VisualRunPage({ params }: { params: Promise<{ runI
     domChanges: Array.isArray(snap.domChanges)
       ? (snap.domChanges as Array<{ type: string; detail: string }>).map((c) => `${c.type}: ${c.detail}`)
       : [],
-    baselineUrl: snap.baseline ? artifactUrl(snap.baseline.artifactId) : null,
-    currentUrl: artifactUrl(snap.currentArtifactId),
-    diffUrl: artifactUrl(snap.diffArtifactId),
+    baselineUrl: snap.baseline ? artifactUrl(org.id, snap.baseline.artifactId) : null,
+    currentUrl: artifactUrl(org.id, snap.currentArtifactId),
+    diffUrl: artifactUrl(org.id, snap.diffArtifactId),
   }));
 
   return (
