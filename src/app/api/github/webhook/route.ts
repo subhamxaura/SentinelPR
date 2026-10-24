@@ -1,11 +1,11 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import { toAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
-import { parseWebhookEvent, shouldReviewPullRequest } from "@/lib/github/webhook";
+import { parseWebhookEvent, shouldReviewPullRequest, verifyWebhookSignature } from "@/lib/github/webhook";
 import { enqueueReviewRun } from "@/lib/queue";
+import { registerRepository } from "@/lib/repositories/registration";
 
 const log = logger.child({ module: "github-webhook" });
 
@@ -31,9 +31,12 @@ export async function POST(req: Request) {
   const event = req.headers.get("x-github-event") ?? "unknown";
   const deliveryId = req.headers.get("x-github-delivery") ?? "";
 
-  if (!verify(secret, rawBody, signature)) {
+  if (!verifyWebhookSignature(rawBody, signature, secret)) {
     log.warn("Webhook signature validation failed", { event, deliveryId });
     return NextResponse.json({ error: { code: "INVALID_SIGNATURE", message: "Signature validation failed" } }, { status: 401 });
+  }
+  if (!deliveryId || deliveryId.length > 255) {
+    return NextResponse.json({ error: { code: "MISSING_DELIVERY_ID", message: "Missing or invalid X-GitHub-Delivery header" } }, { status: 400 });
   }
 
   let payload: unknown;
@@ -42,22 +45,40 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: { code: "INVALID_PAYLOAD", message: "Body is not valid JSON" } }, { status: 400 });
   }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return NextResponse.json({ error: { code: "INVALID_PAYLOAD", message: "Webhook body must be a JSON object" } }, { status: 400 });
+  }
+
+  const body = payload as Record<string, unknown>;
+  const action = typeof body.action === "string" ? body.action : null;
+  const repositoryFullName =
+    typeof (body.repository as Record<string, unknown> | undefined)?.full_name === "string"
+      ? ((body.repository as Record<string, unknown>).full_name as string)
+      : null;
 
   // Idempotency: GitHub redelivers; only the first delivery of an id acts.
+  // A failed delivery may be retried by GitHub and must be reprocessed.
   try {
     await prisma.webhookDelivery.create({
-      data: {
-        deliveryId,
-        event,
-        action: (payload as { action?: string }).action ?? null,
-        repositoryFullName: ((payload as { repository?: { full_name?: string } }).repository?.full_name ?? null),
-      },
+      data: { deliveryId, event, action, repositoryFullName },
     });
   } catch (e) {
-    if (isUniqueViolation(e)) {
+    if (!isUniqueViolation(e)) throw e;
+    const existing = await prisma.webhookDelivery.findUnique({
+      where: { deliveryId },
+      select: { status: true },
+    });
+    if (existing?.status !== "failed") {
       return NextResponse.json({ ok: true, duplicate: true });
     }
-    throw e;
+    const reclaimed = await prisma.webhookDelivery.updateMany({
+      where: { deliveryId, status: "failed" },
+      data: { status: "received", error: null, processedAt: null, event, action, repositoryFullName },
+    });
+    if (reclaimed.count === 0) {
+      return NextResponse.json({ ok: true, duplicate: true });
+    }
+    log.info("Reprocessing failed webhook delivery", { event, deliveryId });
   }
 
   try {
@@ -77,14 +98,6 @@ export async function POST(req: Request) {
     log.error("Webhook processing failed", { event, deliveryId, error: appErr.toJSON() });
     return NextResponse.json({ error: appErr.toJSON() }, { status: 500 });
   }
-}
-
-function verify(secret: string, body: string, signature: string | null): boolean {
-  if (!signature?.startsWith("sha256=")) return false;
-  const expected = createHmac("sha256", secret).update(body, "utf8").digest("hex");
-  const received = signature.slice(7);
-  if (received.length !== expected.length) return false;
-  return timingSafeEqual(Buffer.from(received), Buffer.from(expected));
 }
 
 function isUniqueViolation(e: unknown): boolean {
@@ -152,23 +165,24 @@ async function handleInstallationRepos(parsed: ReturnType<typeof parseWebhookEve
       });
       continue;
     }
-    await prisma.repository.upsert({
-      where: { githubId: repo.id },
-      update: { installationId: installation.id, active: true },
-      create: {
-        organizationId: installation.organizationId,
-        installationId: installation.id,
-        githubId: repo.id,
-        owner: repo.owner?.login ?? repo.full_name.split("/")[0],
-        name: repo.name,
-        fullName: repo.full_name,
-        private: repo.private,
-        defaultBranch: repo.default_branch ?? null,
-      },
+    await registerRepository(prisma, {
+      organizationId: installation.organizationId,
+      installationId: installation.id,
+      githubId: repo.id,
+      owner: repo.owner?.login ?? repo.full_name.split("/")[0],
+      name: repo.name,
+      fullName: repo.full_name,
+      private: repo.private,
+      defaultBranch: repo.default_branch ?? null,
     });
   }
-  for (const repo of body.repositories_removed ?? []) {
-    await prisma.repository.updateMany({ where: { githubId: repo.id }, data: { active: false } });
+  if (installation.organizationId) {
+    for (const repo of body.repositories_removed ?? []) {
+      await prisma.repository.updateMany({
+        where: { githubId: repo.id, organizationId: installation.organizationId },
+        data: { active: false },
+      });
+    }
   }
 }
 
@@ -236,7 +250,16 @@ async function handlePullRequest(parsed: ReturnType<typeof parseWebhookEvent>) {
       status: "queued",
     },
   });
-  await enqueueReviewRun(run.id);
+  try {
+    await enqueueReviewRun(run.id);
+  } catch (e) {
+    const appErr = toAppError(e);
+    await prisma.reviewRun.update({
+      where: { id: run.id },
+      data: { status: "error", error: JSON.stringify(appErr.toJSON()), completedAt: new Date() },
+    });
+    throw appErr;
+  }
 }
 
 

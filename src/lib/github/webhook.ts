@@ -11,9 +11,9 @@ export function verifyWebhookSignature(
   secret: string,
 ): boolean {
   if (!signatureHeader?.startsWith("sha256=")) return false;
-  const expected = createHmacHex(secret, rawBody);
   const received = signatureHeader.slice("sha256=".length);
-  if (received.length !== expected.length) return false;
+  if (!/^[0-9a-f]{64}$/i.test(received)) return false;
+  const expected = createHmacHex(secret, rawBody);
   return timingSafeEqual(Buffer.from(received, "hex"), Buffer.from(expected, "hex"));
 }
 
@@ -103,4 +103,36 @@ export function shouldReviewPullRequest(event: string, action: string | null, pr
   if (["closed", "converted_to_draft"].includes(action)) return false;
   if (pr.draft && action !== "ready_for_review") return false;
   return ["opened", "synchronize", "reopened", "ready_for_review"].includes(action);
+}
+
+export interface TenantWebhookDelivery {
+  id: string;
+  deliveryId: string;
+  event: string;
+  action: string | null;
+  repositoryFullName: string | null;
+  status: string;
+  error: string | null;
+  createdAt: Date;
+  processedAt: Date | null;
+}
+
+/** Queries webhook deliveries scoped to repositories owned by the organization. */
+export async function getTenantWebhookDeliveries(
+  db: { repository: { findMany: Function }; webhookDelivery: { findMany: Function } },
+  organizationId: string,
+  limit = 10,
+): Promise<TenantWebhookDelivery[]> {
+  const repos = (await db.repository.findMany({
+    where: { organizationId },
+    select: { fullName: true },
+  })) as Array<{ fullName: string }>;
+
+  if (!repos.length) return [];
+  const repoNames = repos.map((r) => r.fullName);
+  return (await db.webhookDelivery.findMany({
+    where: { repositoryFullName: { in: repoNames } },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  })) as TenantWebhookDelivery[];
 }

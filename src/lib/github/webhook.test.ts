@@ -33,6 +33,8 @@ describe("verifyWebhookSignature", () => {
     expect(verifyWebhookSignature(body, null, SECRET)).toBe(false);
     expect(verifyWebhookSignature(body, "sha1=abcdef", SECRET)).toBe(false);
     expect(verifyWebhookSignature(body, "sha256=not-hex!", SECRET)).toBe(false);
+    expect(verifyWebhookSignature(body, `sha256=${"g".repeat(64)}`, SECRET)).toBe(false);
+    expect(verifyWebhookSignature(body, `sha256=${"a".repeat(64)}`, SECRET)).toBe(false);
   });
 });
 
