@@ -27,7 +27,7 @@ live configuration state of every subsystem.
 | `SENTINEL_AUTH_MODE` | auto | `oauth` enables GitHub sign-in; `local` pins the legacy single-operator mode. Auto = oauth when client credentials exist. |
 | `AUTH_GITHUB_CLIENT_ID` | — | GitHub OAuth App client id. |
 | `AUTH_GITHUB_CLIENT_SECRET` | — | GitHub OAuth App client secret. |
-| `AUTH_STATE_SECRET` | derived fallback | HMAC secret for signed OAuth state + session binding. Set a strong random value in production. |
+| `AUTH_STATE_SECRET` | derived fallback | HMAC secret for signed OAuth state + session binding (`AUTH_SECRET` also supported). Required in production. |
 | `AUTH_ALLOW_DEFAULT_ORG_SIGNUP` | `1` | `0` disables auto-joining the default org — access then requires an explicit invite or an admin-approved request from the sign-in screen. |
 
 Setup: create a GitHub **OAuth App** (not an App Installation) at <https://github.com/settings/developers>
@@ -43,6 +43,7 @@ The first signed-in user becomes owner of the default organization; further user
 | `GITHUB_APP_SLUG` | Slug (used to render install links). |
 | `GITHUB_APP_PRIVATE_KEY` | PEM, raw (with `\n`) or base64-encoded. |
 | `GITHUB_WEBHOOK_SECRET` | Validates `X-Hub-Signature-256`. Webhooks are disabled (503) without it. |
+| `GITHUB_INSTALLATION_SECRET` | Dedicated HMAC secret for installation flow (`GITHUB_APP_SETUP_SECRET` also supported; falls back to domain-separated `AUTH_STATE_SECRET`). Production fails closed if neither is configured. |
 | `GITHUB_TOKEN` | PAT fallback for manual review runs on repos not connected via the App. |
 
 ## AI review (optional — pipeline is fully functional without it)
