@@ -5,7 +5,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { apiError, parseBody } from "@/lib/web/api";
 import { actorFor, recordAudit, requireMutationRole, requireOrganization } from "@/lib/web/session";
-import { stepsSchema, parseCron } from "@/lib/synth/steps";
+import { stepsSchema, parseCron, parseTimezone } from "@/lib/synth/steps";
 import { validatePublicUrl } from "@/lib/net/guard";
 import { upsertSyntheticSchedule } from "@/lib/queue";
 
@@ -47,7 +47,9 @@ export async function POST(req: Request) {
     requireMutationRole(org, req.method);
 
     await validatePublicUrl(body.baseUrl); // SSRF guard
-    if (body.schedule) parseCron(body.schedule.cron); // fail fast on bad cron
+    const schedule = body.schedule
+      ? { cron: parseCron(body.schedule.cron), timezone: parseTimezone(body.schedule.timezone) }
+      : null;
 
     const test = await prisma.syntheticTest.create({
       data: {
@@ -57,17 +59,15 @@ export async function POST(req: Request) {
         steps: body.steps,
         alertLatencyMs: body.alertLatencyMs ?? null,
         maxConsecutiveFailures: body.maxConsecutiveFailures,
-        ...(body.schedule
-          ? { schedule: { create: { cron: body.schedule.cron, timezone: body.schedule.timezone } } }
-          : {}),
+        ...(schedule ? { schedule: { create: schedule } } : {}),
       },
       include: { schedule: true },
     });
 
-    if (body.schedule) {
+    if (schedule) {
       // Schedule changes are applied to Redis immediately; workers reconcile on boot.
       try {
-        await upsertSyntheticSchedule(test.id, body.schedule.cron, body.schedule.timezone);
+        await upsertSyntheticSchedule(test.id, schedule.cron, schedule.timezone);
       } catch {
         // Redis down: DB row is the source of truth, worker reconciles later. Surfaced in UI.
       }

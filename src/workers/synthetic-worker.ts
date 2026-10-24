@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { getQueueConnection, upsertSyntheticSchedule, removeSyntheticSchedule } from "@/lib/queue";
 import { QUEUE_NAMES } from "@/lib/types";
-import { processSyntheticRun } from "@/lib/synth/runner";
+import { processSyntheticRun, recoverStaleSyntheticRuns } from "@/lib/synth/runner";
 import { startWorker } from "./shared";
 
 const log = logger.child({ module: "synthetic-worker" });
@@ -18,6 +18,18 @@ async function handleJob(data: { syntheticRunId?: string; testId?: string; trigg
     return;
   }
   if (data.testId) {
+    const test = await prisma.syntheticTest.findUnique({
+      where: { id: data.testId },
+      select: { enabled: true, schedule: { select: { paused: true } } },
+    });
+    if (!test?.enabled || !test.schedule || test.schedule.paused) {
+      log.info("Skipping scheduled tick — test or schedule is inactive", { testId: data.testId });
+      return;
+    }
+
+    // Recover any abandoned runs for this test before checking inflight status.
+    await recoverStaleSyntheticRuns(data.testId);
+
     // Duplicate prevention: skip if a tick for this test is already queued/running.
     const inflight = await prisma.syntheticRun.findFirst({
       where: { testId: data.testId, status: { in: ["queued", "running"] } },
@@ -47,6 +59,10 @@ startWorker({
 
 /** Reconcile DB schedules with Redis at startup (drift-proof: the DB is the source of truth). */
 async function reconcileSchedules() {
+  await recoverStaleSyntheticRuns().catch((e) => {
+    log.warn("Startup stale run recovery failed", { error: String(e) });
+  });
+
   const schedules = await prisma.syntheticSchedule.findMany({
     where: { paused: false, test: { enabled: true } },
     select: { testId: true, cron: true, timezone: true },

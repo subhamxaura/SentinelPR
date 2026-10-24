@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AppError } from "@/lib/errors";
 
 /**
  * Synthetic test step vocabulary. Deliberately small: each step maps to one
@@ -48,20 +49,66 @@ export type SyntheticStep = z.infer<typeof stepSchema>;
 
 export const stepsSchema = z.array(stepSchema).min(1).max(50);
 
+function invalid(message: string): AppError {
+  return new AppError({ code: "VALIDATION_ERROR", message, category: "config", status: 400 });
+}
+
 export function parseSteps(raw: unknown): SyntheticStep[] {
   const parsed = stepsSchema.safeParse(raw);
   if (!parsed.success) {
-    throw new Error(`Invalid steps: ${parsed.error.issues.slice(0, 3).map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
+    throw invalid(`Invalid steps: ${parsed.error.issues.slice(0, 3).map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
   }
   return parsed.data;
 }
 
-export const CRON_RE =
-  /^(\*|\d+|\*\/\d+)(\s+(\*|\d+|\*\/\d+)){4}$/; // 5-field cron (minute dom month dow)
+interface CronField {
+  name: string;
+  min: number;
+  max: number;
+}
+
+const CRON_FIELDS: CronField[] = [
+  { name: "minute", min: 0, max: 59 },
+  { name: "hour", min: 0, max: 23 },
+  { name: "day of month", min: 1, max: 31 },
+  { name: "month", min: 1, max: 12 },
+  { name: "day of week", min: 0, max: 7 },
+];
+
+function validCronField(raw: string, field: CronField): boolean {
+  if (raw === "*") return true;
+  const step = /^\*\/(\d+)$/.exec(raw);
+  if (step) {
+    const value = Number(step[1]);
+    return Number.isInteger(value) && value >= 1 && value <= field.max;
+  }
+  if (!/^\d+$/.test(raw)) return false;
+  const value = Number(raw);
+  return Number.isInteger(value) && value >= field.min && value <= field.max;
+}
 
 export function parseCron(raw: string): string {
-  if (!CRON_RE.test(raw.trim())) {
-    throw new Error(`Invalid cron expression: ${raw}. Use a standard 5-field cron.`);
+  const trimmed = raw.trim();
+  const parts = trimmed.split(/\s+/);
+  if (parts.length !== 5) {
+    throw invalid(`Invalid cron expression: ${raw}. Use a standard 5-field cron.`);
   }
-  return raw.trim();
+  for (let i = 0; i < parts.length; i++) {
+    if (!validCronField(parts[i], CRON_FIELDS[i])) {
+      throw invalid(
+        `Invalid cron ${CRON_FIELDS[i].name} field "${parts[i]}". Use *, a value from ${CRON_FIELDS[i].min}-${CRON_FIELDS[i].max}, or */step.`,
+      );
+    }
+  }
+  return trimmed;
+}
+
+export function parseTimezone(raw: string): string {
+  const timezone = raw.trim() || "UTC";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format();
+  } catch {
+    throw invalid(`Invalid timezone: ${timezone}.`);
+  }
+  return timezone;
 }

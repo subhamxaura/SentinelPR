@@ -7,6 +7,9 @@ startWorker({
   concurrency: 2,
   processor: async (job) => {
     const data = job.data as { reviewRunId: string };
-    await processReviewRun(data.reviewRunId);
+    await processReviewRun(data.reviewRunId, {
+      attempt: job.attemptsMade + 1,
+      maxAttempts: Math.max(1, job.opts.attempts ?? 1),
+    });
   },
 });
