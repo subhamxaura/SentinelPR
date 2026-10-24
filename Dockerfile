@@ -19,35 +19,43 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN pnpm db:generate && pnpm build
 
-# ── Runtime: full node_modules (workers need Playwright, BullMQ, SDKs) ───────
+# ── Runtime: dedicated non-root user (node) ──────────────────────────────────
 FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     ARTIFACT_LOCAL_DIR=/app/.data/artifacts
 
-# Manifests first (corepack reads packageManager), then dependencies.
+# System libraries for Chromium & ca-certificates
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# Manifests first, then node_modules
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --from=build /app/node_modules ./node_modules
 
-# Playwright system libraries + Chromium so the visual/synthetic workers are
-# ready on first boot. Runs after node_modules so `pnpm exec` can resolve it.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends openssl ca-certificates \
+# Install Playwright browser to /ms-playwright with system dependencies
+RUN mkdir -p /ms-playwright /app/.data/artifacts \
  && pnpm exec playwright install --with-deps chromium \
- && rm -rf /var/lib/apt/lists/*
+ && chown -R node:node /app /ms-playwright /pnpm
 
-COPY --from=build /app/.next ./.next
-# Full src tree: workers execute TypeScript directly via tsx at runtime.
-COPY --from=build /app/src ./src
-COPY --from=build /app/prisma ./prisma
-COPY --from=build /app/public ./public
-COPY --from=build /app/next.config.ts ./next.config.ts
-COPY --from=build /app/prisma.config.ts ./prisma.config.ts
-COPY --from=build /app/tsconfig.json ./tsconfig.json
-COPY --from=build /app/postcss.config.mjs ./postcss.config.mjs
+COPY --from=build --chown=node:node /app/.next ./.next
+COPY --from=build --chown=node:node /app/src ./src
+COPY --from=build --chown=node:node /app/prisma ./prisma
+COPY --from=build --chown=node:node /app/public ./public
+COPY --from=build --chown=node:node /app/next.config.ts ./next.config.ts
+COPY --from=build --chown=node:node /app/prisma.config.ts ./prisma.config.ts
+COPY --from=build --chown=node:node /app/tsconfig.json ./tsconfig.json
+COPY --from=build --chown=node:node /app/postcss.config.mjs ./postcss.config.mjs
+
+USER node
 
 EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "fetch('http://localhost:3000/api/session').then(r => process.exit(r.ok || r.status === 401 ? 0 : 1)).catch(() => process.exit(1))"
 
 # Dashboard by default:  docker run sentinelpr
 # Workers:               docker run sentinelpr pnpm worker:review  (or :visual / :synthetic)
