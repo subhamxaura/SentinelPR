@@ -32,13 +32,39 @@ export const MAX_ARTIFACT_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
 
 /** Resolve a storage key under baseDir, rejecting sibling-prefix, absolute and traversal escapes. */
 export function resolveStoragePath(baseDir: string, key: string): string {
-  if (!key || typeof key !== "string" || key.includes("\0") || path.isAbsolute(key) || /^[a-zA-Z]:/.test(key)) {
+  if (
+    !key ||
+    typeof key !== "string" ||
+    key.includes("\0") ||
+    path.posix.isAbsolute(key) ||
+    path.win32.isAbsolute(key) ||
+    key.startsWith("/") ||
+    key.startsWith("\\") ||
+    /^[a-zA-Z]:/.test(key)
+  ) {
     throw err.internal("Invalid artifact key");
   }
+
+  // Reject traversal patterns across both POSIX and Windows separators
+  const normalizedKey = key.replace(/\\/g, "/");
+  const segments = normalizedKey.split("/");
+  if (segments.some((segment) => segment === "..")) {
+    throw err.internal("Invalid artifact key");
+  }
+
   const base = path.resolve(baseDir);
-  const full = path.resolve(base, key);
+  const full = path.resolve(base, normalizedKey);
   const relative = path.relative(base, full);
-  if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+  if (
+    !relative ||
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    relative.startsWith("../") ||
+    relative.startsWith("..\\") ||
+    path.isAbsolute(relative) ||
+    path.posix.isAbsolute(relative) ||
+    path.win32.isAbsolute(relative)
+  ) {
     throw err.internal("Invalid artifact key");
   }
   return full;
