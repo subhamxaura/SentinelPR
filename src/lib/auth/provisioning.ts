@@ -25,19 +25,34 @@ export interface ProvisionedUser {
   name: string | null;
 }
 
+function isUniqueViolation(e: unknown): boolean {
+  return typeof e === "object" && e !== null && "code" in e && (e as { code?: string }).code === "P2002";
+}
+
+function isSerializationFailure(e: unknown): boolean {
+  return typeof e === "object" && e !== null && "code" in e && (e as { code?: string }).code === "P2034";
+}
+
 /** Idempotently upsert the User row for a GitHub identity. */
 export async function upsertUserFromIdentity(identity: GitHubIdentity): Promise<ProvisionedUser> {
   const byEmail = await prisma.user.findUnique({ where: { email: identity.email } });
   if (byEmail) {
-    const updated = await prisma.user.update({
-      where: { id: byEmail.id },
-      data: {
-        githubLogin: identity.login,
-        avatarUrl: identity.avatarUrl,
-        name: byEmail.name ?? identity.name,
-      },
-    });
-    return { id: updated.id, email: updated.email, name: updated.name };
+    try {
+      const updated = await prisma.user.update({
+        where: { id: byEmail.id },
+        data: {
+          githubLogin: identity.login,
+          avatarUrl: identity.avatarUrl,
+          name: byEmail.name ?? identity.name,
+        },
+      });
+      return { id: updated.id, email: updated.email, name: updated.name };
+    } catch (e) {
+      // githubLogin is already attached to another local row. The verified
+      // email still identifies this account; do not steal the login.
+      if (!isUniqueViolation(e)) throw e;
+      return { id: byEmail.id, email: byEmail.email, name: byEmail.name };
+    }
   }
 
   // Email changed on GitHub's side — the unique login still identifies the person.
@@ -56,24 +71,41 @@ export async function upsertUserFromIdentity(identity: GitHubIdentity): Promise<
     return { id: updated.id, email: updated.email, name: updated.name };
   }
 
-  const created = await prisma.user.create({
-    data: {
-      email: identity.email,
-      name: identity.name,
-      githubLogin: identity.login,
-      avatarUrl: identity.avatarUrl,
-    },
-  });
-  return { id: created.id, email: created.email, name: created.name };
+  try {
+    const created = await prisma.user.create({
+      data: {
+        email: identity.email,
+        name: identity.name,
+        githubLogin: identity.login,
+        avatarUrl: identity.avatarUrl,
+      },
+    });
+    return { id: created.id, email: created.email, name: created.name };
+  } catch (e) {
+    if (!isUniqueViolation(e)) throw e;
+    // Concurrent first sign-in won the insert race.
+    const existing =
+      (await prisma.user.findUnique({ where: { email: identity.email } })) ??
+      (await prisma.user.findUnique({ where: { githubLogin: identity.login } }));
+    if (!existing) throw e;
+    return { id: existing.id, email: existing.email, name: existing.name };
+  }
 }
 
 /** Default (bootstrap) organization, shared with the legacy local mode + seed. */
 export async function defaultOrganization() {
-  return prisma.organization.upsert({
-    where: { slug: env.orgSlug },
-    update: {},
-    create: { name: env.orgName, slug: env.orgSlug },
-  });
+  try {
+    return await prisma.organization.upsert({
+      where: { slug: env.orgSlug },
+      update: {},
+      create: { name: env.orgName, slug: env.orgSlug },
+    });
+  } catch (e) {
+    if (!isUniqueViolation(e)) throw e;
+    const existing = await prisma.organization.findUnique({ where: { slug: env.orgSlug } });
+    if (!existing) throw e;
+    return existing;
+  }
 }
 
 /**
@@ -98,11 +130,54 @@ export async function consumePendingInvites(userId: string, email: string): Prom
         prisma.organizationInvite.update({ where: { id: invite.id }, data: { acceptedAt: new Date() } }),
       ]);
       accepted.push({ organizationId: invite.organizationId, role: invite.role });
-    } catch {
+    } catch (e) {
       // P2002: already a member (race or pre-existing row) — nothing to do.
+      if (!isUniqueViolation(e)) throw e;
     }
   }
   return accepted;
+}
+
+/**
+ * Auto-join the default organization. Serializable isolation prevents two
+ * concurrent first sign-ins from both observing an empty membership table and
+ * becoming owner; P2034 retries and P2002 handles the same-user race.
+ */
+async function joinDefaultOrganization(organizationId: string, userId: string): Promise<MembershipRef> {
+  const key = { organizationId, userId };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await prisma.$transaction(
+        async (tx) => {
+          const existing = await tx.organizationMember.findUnique({
+            where: { organizationId_userId: key },
+            select: { role: true },
+          });
+          if (existing) return { organizationId, role: existing.role };
+
+          const isFirstMember = (await tx.organizationMember.count({ where: { organizationId } })) === 0;
+          const role = isFirstMember ? "owner" : "member";
+          const created = await tx.organizationMember.create({
+            data: { organizationId, userId, role },
+            select: { role: true },
+          });
+          return { organizationId, role: created.role };
+        },
+        { isolationLevel: "Serializable" },
+      );
+    } catch (e) {
+      if (isUniqueViolation(e)) {
+        const existing = await prisma.organizationMember.findUnique({
+          where: { organizationId_userId: key },
+          select: { role: true },
+        });
+        if (existing) return { organizationId, role: existing.role };
+      }
+      if (isSerializationFailure(e) && attempt < 2) continue;
+      throw e;
+    }
+  }
+  throw new Error("Could not join the default organization after retries");
 }
 
 /**
@@ -121,11 +196,7 @@ export async function ensureMemberships(user: ProvisionedUser): Promise<Membersh
 
   if (env.auth.allowDefaultOrgSignup) {
     const org = await defaultOrganization();
-    const isFirstMember = (await prisma.organizationMember.count({ where: { organizationId: org.id } })) === 0;
-    await prisma.organizationMember.create({
-      data: { organizationId: org.id, userId: user.id, role: isFirstMember ? "owner" : "member" },
-    });
-    return [{ organizationId: org.id, role: isFirstMember ? "owner" : "member" }];
+    return [await joinDefaultOrganization(org.id, user.id)];
   }
 
   return [];

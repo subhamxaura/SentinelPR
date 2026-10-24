@@ -38,9 +38,10 @@ export function canAssignRole(actor: Role | null, target: Role): boolean {
  * - Nobody may edit a fellow owner except an owner; even then, an owner can
  *   never demote or remove another owner (last-owner guard makes this total).
  * - Admins can never act on owners at all.
- * - Actors can always act on themselves — a self-demotion is the accepted way
- *   to give up admin — EXCEPT that demoting/removing yourself as the last
- *   owner is blocked by the owner-count guard at the call site.
+ * - Actors may update themselves, but may never promote themselves above
+ *   their current role. A self-demotion is the accepted way to give up admin.
+ * - Demoting/removing yourself as the last owner is blocked by the
+ *   owner-count guard at the call site.
  */
 export function canModifyMember(
   actor: Role | null,
@@ -50,6 +51,9 @@ export function canModifyMember(
 ): { allowed: boolean; reason?: string } {
   if (!actor) return { allowed: false, reason: "Not authenticated." };
   if (opts.isSelf) {
+    if (targetNext !== null && rankRole(targetNext) > rankRole(actor)) {
+      return { allowed: false, reason: "You cannot promote yourself above your current role." };
+    }
     if (actor === "owner" && targetCurrent === "owner" && targetNext !== "owner" && opts.ownerCount <= 1) {
       return { allowed: false, reason: "You are the last owner — promote another owner first." };
     }

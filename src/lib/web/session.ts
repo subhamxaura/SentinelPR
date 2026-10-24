@@ -10,8 +10,8 @@ import { prisma } from "@/lib/db";
 import { err } from "@/lib/errors";
 import { authMode } from "@/lib/auth/mode";
 import { readSession, type SessionUser } from "@/lib/auth/session-store";
-import { consumePendingInvites } from "@/lib/auth/provisioning";
-import { bestRole } from "@/lib/web/roles";
+import { consumePendingInvites, defaultOrganization } from "@/lib/auth/provisioning";
+import type { Role } from "@/lib/web/roles";
 
 export interface OrgContext {
   id: string;
@@ -29,24 +29,43 @@ export interface OrgContext {
 /* ── Local (legacy) mode ────────────────────────────────────────────────── */
 
 async function resolveLocalOrganization(): Promise<Omit<OrgContext, "user" | "role" | "sessionId">> {
-  const { env } = await import("@/lib/env");
-  let org = await prisma.organization.findUnique({ where: { slug: env.orgSlug } });
-  if (org) return org;
-  org = await prisma.organization.create({
-    data: { name: env.orgName, slug: env.orgSlug },
-  });
+  const org = await defaultOrganization();
   const systemUser = await prisma.user.upsert({
     where: { email: "local@sentinelpr.dev" },
     update: {},
     create: { email: "local@sentinelpr.dev", name: "Local Operator" },
   });
-  await prisma.organizationMember.create({
-    data: { organizationId: org.id, userId: systemUser.id, role: "owner" },
+  await prisma.organizationMember.upsert({
+    where: { organizationId_userId: { organizationId: org.id, userId: systemUser.id } },
+    update: {},
+    create: { organizationId: org.id, userId: systemUser.id, role: "owner" },
   });
   return org;
 }
 
 /* ── Shared resolution ──────────────────────────────────────────────────── */
+
+export interface UserMembership {
+  organizationId: string;
+  role: Role;
+  organization: { id: string; name: string; slug: string };
+}
+
+/**
+ * Resolve the active organization membership.
+ * Permissions MUST be scoped to the selected organization only; never aggregate
+ * or elevate roles across different organizations (cross-tenant privilege escalation).
+ */
+export function resolveTargetMembership(
+  memberships: UserMembership[],
+  activeOrgId?: string | null,
+): UserMembership | null {
+  if (!memberships.length) return null;
+  return (
+    (activeOrgId ? memberships.find((m) => m.organizationId === activeOrgId) : null) ??
+    memberships[0]
+  );
+}
 
 async function resolveContext(): Promise<OrgContext | null> {
   if (authMode() === "local") {
@@ -62,15 +81,14 @@ async function resolveContext(): Promise<OrgContext | null> {
   // next page load. No-op (and cheap) when there is nothing pending.
   await consumePendingInvites(session.user.id, session.user.email).catch(() => undefined);
 
-  const memberships = await prisma.organizationMember.findMany({
+  const memberships = (await prisma.organizationMember.findMany({
     where: { userId: session.user.id },
     select: { organizationId: true, role: true, organization: { select: { id: true, name: true, slug: true } } },
-  });
+  })) as UserMembership[];
   if (memberships.length === 0) return null;
 
-  const target =
-    memberships.find((m) => m.organizationId === session.activeOrgId) ??
-    memberships[0];
+  const target = resolveTargetMembership(memberships, session.activeOrgId);
+  if (!target) return null;
 
   return {
     id: target.organization.id,
@@ -78,7 +96,7 @@ async function resolveContext(): Promise<OrgContext | null> {
     slug: target.organization.slug,
     sessionId: session.id,
     user: session.user,
-    role: bestRole(memberships.map((m) => m.role)),
+    role: target.role,
   };
 }
 

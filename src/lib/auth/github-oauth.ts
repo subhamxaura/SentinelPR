@@ -67,7 +67,6 @@ interface GitHubUserApi {
   login: string;
   name: string | null;
   avatar_url: string | null;
-  email: string | null;
 }
 
 export async function fetchIdentity(accessToken: string): Promise<GitHubIdentity> {
@@ -80,15 +79,13 @@ export async function fetchIdentity(accessToken: string): Promise<GitHubIdentity
   if (!userRes.ok) throw new Error(`GitHub /user failed (${userRes.status})`);
   const user = (await userRes.json()) as GitHubUserApi;
 
-  // OAuth apps see private emails only via /user/emails; fall back to the
-  // public profile email, then to a noreply-style address.
-  let email = user.email;
-  if (!email) {
-    const emailsRes = await fetch(EMAILS_URL, { headers, signal: AbortSignal.timeout(10_000) }).catch(() => null);
-    if (emailsRes?.ok) {
-      const emails = (await emailsRes.json()) as Array<{ email: string; primary: boolean; verified: boolean }>;
-      email = emails.find((e) => e.primary && e.verified)?.email ?? emails.find((e) => e.verified)?.email ?? null;
-    }
+  // Identity uses GitHub's verified primary email only. /user.email may be a
+  // stale or unverified public profile value and must not merge local accounts.
+  let email: string | null = null;
+  const emailsRes = await fetch(EMAILS_URL, { headers, signal: AbortSignal.timeout(10_000) }).catch(() => null);
+  if (emailsRes?.ok) {
+    const emails = (await emailsRes.json().catch(() => null)) as Array<{ email?: string; primary?: boolean; verified?: boolean }> | null;
+    email = emails?.find((e) => e.primary === true && e.verified === true && typeof e.email === "string")?.email ?? null;
   }
   if (!email) email = `${user.id}+${user.login}@users.noreply.github.com`;
 
