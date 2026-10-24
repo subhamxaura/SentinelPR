@@ -52,6 +52,17 @@ export const env = {
     get pat(): string | undefined {
       return str("GITHUB_TOKEN");
     },
+    /** HMAC secret for GitHub installation flow. Production fails closed if unset. */
+    get installationSecret(): string {
+      const configured = str("GITHUB_INSTALLATION_SECRET") ?? str("GITHUB_APP_SETUP_SECRET");
+      if (configured) return configured;
+      const stateSecret = str("AUTH_STATE_SECRET") ?? str("AUTH_SECRET");
+      if (stateSecret) return `install:${stateSecret}`;
+      if (str("NODE_ENV") === "production") {
+        throw new Error("GITHUB_INSTALLATION_SECRET or AUTH_STATE_SECRET is required in production.");
+      }
+      return "sentinelpr-local-installation-secret";
+    },
   },
 
   ai: {

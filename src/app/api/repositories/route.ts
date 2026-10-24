@@ -7,6 +7,8 @@ import { env } from "@/lib/env";
 import { apiError, parseBody, withOrg } from "@/lib/web/api";
 import { actorFor, recordAudit, requireMutationRole, requireOrganization } from "@/lib/web/session";
 import { toAppError } from "@/lib/errors";
+import { getOctokitForRepository } from "@/lib/github/client";
+import { registerRepository } from "@/lib/repositories/registration";
 import { logger } from "@/lib/logger";
 
 const log = logger.child({ module: "api/repositories" });
@@ -52,32 +54,27 @@ export async function POST(req: Request) {
     const org = await requireOrganization();
     requireMutationRole(org, req.method);
 
-    if (!env.github.pat && !env.github.appId) {
+    if (!env.github.pat) {
       return NextResponse.json(
-        { error: { code: "GITHUB_NOT_CONFIGURED", message: "Connect the GitHub App (or set GITHUB_TOKEN) before adding repositories.", category: "config", retryable: false } },
+        { error: { code: "GITHUB_NOT_CONFIGURED", message: "Manual repository registration requires GITHUB_TOKEN. Install the GitHub App to connect repositories without a token.", category: "config", retryable: false } },
         { status: 503 },
       );
     }
 
-    const { Octokit } = await import("octokit");
-    const octokit = new Octokit({ auth: env.github.pat ?? undefined });
+    const { octokit } = await getOctokitForRepository({ installationId: null, fullName: body.fullName });
     const [owner, name] = body.fullName.split("/");
     const { data: repo } = await octokit.rest.repos.get({ owner, repo: name }).catch((e) => {
       throw toAppError(e);
     });
 
-    const created = await prisma.repository.upsert({
-      where: { githubId: repo.id },
-      update: { organizationId: org.id, active: true },
-      create: {
-        organizationId: org.id,
-        githubId: repo.id,
-        owner: repo.owner.login,
-        name: repo.name,
-        fullName: repo.full_name,
-        private: repo.private,
-        defaultBranch: repo.default_branch,
-      },
+    const created = await registerRepository(prisma, {
+      organizationId: org.id,
+      githubId: repo.id,
+      owner: repo.owner.login,
+      name: repo.name,
+      fullName: repo.full_name,
+      private: repo.private,
+      defaultBranch: repo.default_branch,
     });
     await recordAudit(org.id, actorFor(org), "repository.added", "repository", created.id, { fullName: created.fullName });
     log.info("Repository added", { repo: created.fullName, mode: env.github.pat ? "pat" : "app" });

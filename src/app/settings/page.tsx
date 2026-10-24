@@ -5,6 +5,7 @@ import { authMode } from "@/lib/auth/mode";
 import { METRICS_DEFAULTS } from "@/lib/metrics/server";
 import { PageHeader, Card, CardHeader, StatusBadge, Mono } from "@/components/primitives";
 import { formatDateTime } from "@/lib/web/format";
+import { getTenantWebhookDeliveries } from "@/lib/github/webhook";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ export default async function SettingsPage() {
 
   const [jobCounts, recentDeliveries, queueState] = await Promise.all([
     prisma.jobRecord.groupBy({ by: ["queue", "status"], _count: true }),
-    prisma.webhookDelivery.findMany({ orderBy: { createdAt: "desc" }, take: 10 }),
+    getTenantWebhookDeliveries(prisma, org.id, 10),
     redisProbe(),
   ]);
 

@@ -682,35 +682,6 @@ export function RevokeInviteButton({ inviteId }: { inviteId: string }) {
   );
 }
 
-export function ClaimInstallationButton({ installationId }: { installationId: string }) {
-  const router = useRouter();
-  const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  return (
-    <span className="inline-flex items-center gap-2">
-      <Button
-        variant="primary"
-        disabled={busy || done}
-        onClick={async () => {
-          setBusy(true);
-          setError(null);
-          const result = await post(`/api/installations/${installationId}/claim`);
-          setBusy(false);
-          if (result.ok) {
-            setDone(true);
-            router.refresh();
-          } else setError(result.error ?? null);
-        }}
-      >
-        {done ? "Claimed ✓" : busy ? "Claiming…" : "Claim for this organization"}
-      </Button>
-      <ErrorLine error={error} />
-    </span>
-  );
-}
-
 export function AlertActions({ alertId, status }: { alertId: string; status: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
