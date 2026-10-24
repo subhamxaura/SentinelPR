@@ -2,7 +2,8 @@ import { prisma } from "@/lib/db";
 import { err, toAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { getStorage, artifactKey, sha256 } from "@/lib/storage";
-import { validatePublicUrl } from "@/lib/net/guard";
+import { validatePublicUrl, safeFetch } from "@/lib/net/guard";
+import { installBrowserRequestGuard } from "@/lib/net/browser-guard";
 import { comparePngs } from "./diff";
 import { DOM_SIGNATURE_EXPRESSION, diffDomSignatures, type DomSignature } from "./dom";
 import { raiseAlert, resolveAlerts } from "@/lib/alerts";
@@ -24,7 +25,7 @@ async function waitForReadiness(baseUrl: string, readinessPath: string, timeoutM
   let lastError: unknown = null;
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(5000), redirect: "manual" });
+      const res = await safeFetch(url, { signal: AbortSignal.timeout(5000) });
       if (res.status < 400) return;
       lastError = new Error(`readiness returned ${res.status}`);
     } catch (e) {
@@ -70,7 +71,9 @@ async function capturePage(opts: {
       reducedMotion: "reduce",
       timezoneId: "UTC",
       locale: "en-US",
+      serviceWorkers: "block",
     });
+    await installBrowserRequestGuard(context);
     const page = await context.newPage();
     await page.goto(url.toString(), { waitUntil: "load", timeout: opts.timeoutMs });
     try {
@@ -196,12 +199,18 @@ export async function processVisualRun(visualRunId: string): Promise<void> {
             status = result.diffRatio <= test.threshold ? "passed" : "failed";
           }
 
-          // DOM / experience diff: compare against the signature captured when the
-          // active baseline originated (earliest snapshot for this test/browser/viewport).
-          if (baseline) {
+          // DOM / experience diff: find the snapshot whose pixels became the
+          // active baseline, not merely the oldest snapshot for this target.
+          if (baseline?.artifact.sha256) {
             const originSnapshot = await prisma.visualSnapshot.findFirst({
-              where: { testId: test.id, browser: browserName, viewportLabel: viewport.label },
-              orderBy: { createdAt: "asc" },
+              where: {
+                testId: test.id,
+                browser: browserName,
+                viewportLabel: viewport.label,
+                createdAt: { lte: baseline.createdAt },
+                currentArtifact: { sha256: baseline.artifact.sha256 },
+              },
+              orderBy: { createdAt: "desc" },
               select: { metadata: true },
             });
             const originSignature = (originSnapshot?.metadata as { domSignature?: DomSignature } | null)?.domSignature;
@@ -251,7 +260,10 @@ export async function processVisualRun(visualRunId: string): Promise<void> {
               dedupKey: `visual_regression:${test.id}:${browserName}:${viewport.label}`,
             });
           } else if (status === "passed") {
-            await resolveAlerts(run.suite.organizationId, `visual_regression:${test.id}:`);
+            await resolveAlerts(
+              run.suite.organizationId,
+              `visual_regression:${test.id}:${browserName}:${viewport.label}`,
+            );
           }
         } catch (e) {
           const appErr = toAppError(e);
@@ -265,13 +277,19 @@ export async function processVisualRun(visualRunId: string): Promise<void> {
   await prisma.visualRun.update({
     where: { id: run.id },
     data: {
-      status: firstError && !anyFailed && worstRatio === 0 ? "error" : anyFailed ? "failed" : "passed",
+      status: visualRunStatus(anyFailed, firstError !== null),
       diffRatio: worstRatio > 0 ? worstRatio : null,
       error: firstError,
       completedAt: new Date(),
     },
   });
-  log.info("Visual run completed", { visualRunId, failed: anyFailed, worstRatio });
+  log.info("Visual run completed", { visualRunId, failed: anyFailed, captureFailed: firstError !== null, worstRatio });
+}
+
+export function visualRunStatus(anyFailed: boolean, captureFailed: boolean): "passed" | "failed" | "error" {
+  if (anyFailed) return "failed";
+  if (captureFailed) return "error";
+  return "passed";
 }
 
 export function parseBrowsers(raw: unknown): BrowserName[] {
