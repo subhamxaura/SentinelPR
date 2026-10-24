@@ -1,10 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { authMode } from "@/lib/auth/mode";
-import { sanitizeRedirect, verifySignedState } from "@/lib/auth/crypto";
+import { stateNonceMatches, verifySignedState } from "@/lib/auth/crypto";
 import { exchangeCodeForToken, fetchIdentity } from "@/lib/auth/github-oauth";
-import { ensureMemberships, pickDefaultMembership, upsertUserFromIdentity } from "@/lib/auth/provisioning";
+import { ensureMemberships, upsertUserFromIdentity } from "@/lib/auth/provisioning";
 import { createSession } from "@/lib/auth/session-store";
+import { OAUTH_STATE_COOKIE, clearOAuthStateCookie } from "@/lib/auth/oauth-cookie";
 import { logger } from "@/lib/logger";
 
 const log = logger.child({ module: "auth/callback" });
@@ -13,7 +14,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** GET /api/auth/github/callback?code=…&state=… — completes the OAuth flow. */
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const stateParam = url.searchParams.get("state");
@@ -28,6 +29,11 @@ export async function GET(req: Request) {
 
   const state = verifySignedState(stateParam);
   if (!state) return redirectToError(url.origin, "Sign-in link expired or invalid — start again.");
+
+  const stateCookie = req.cookies.get(OAUTH_STATE_COOKIE)?.value;
+  if (!stateNonceMatches(state.nonce, stateCookie)) {
+    return redirectToError(url.origin, "Sign-in link expired or invalid — start again.");
+  }
 
   try {
     const token = await exchangeCodeForToken(code);
@@ -45,7 +51,9 @@ export async function GET(req: Request) {
     });
 
     log.info("User signed in", { user: user.id });
-    return NextResponse.redirect(`${url.origin}${state.redirectTo}`);
+    const response = NextResponse.redirect(`${url.origin}${state.redirectTo}`);
+    clearOAuthStateCookie(response);
+    return response;
   } catch (e) {
     log.error("OAuth callback failed", { error: e instanceof Error ? e.message : "unknown" });
     return redirectToError(url.origin, "Sign-in failed — please try again.");
@@ -54,5 +62,7 @@ export async function GET(req: Request) {
 
 function redirectToError(origin: string, message: string): NextResponse {
   const params = new URLSearchParams({ error: message });
-  return NextResponse.redirect(`${origin}/signin?${params.toString()}`);
+  const response = NextResponse.redirect(`${origin}/signin?${params.toString()}`);
+  clearOAuthStateCookie(response);
+  return response;
 }
