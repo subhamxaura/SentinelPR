@@ -41,6 +41,20 @@ describe("normalizeFinding", () => {
   it("schema rejects out-of-range confidence", () => {
     expect(findingSchema.safeParse({ ...valid, confidence: 1.5 }).success).toBe(false);
   });
+
+  it("automatically redacts raw credentials in evidence and description", () => {
+    const rawKey = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
+    const rawToken = ["ghp", "1234567890abcdefghijklmnopqrstuvwxyz12"].join("_");
+    const f = normalizeFinding({
+      ...valid,
+      description: `Leaked token: ${rawToken}`,
+      evidence: `const aws = "${rawKey}";`,
+    });
+    expect(f.description).not.toContain(rawToken);
+    expect(f.description).toContain("ghp_••••••••••••••••");
+    expect(f.evidence).not.toContain(rawKey);
+    expect(f.evidence).toContain("AKIA••••••••••••••••");
+  });
 });
 
 describe("dedupeFindings", () => {
@@ -73,10 +87,10 @@ describe("dedupeFindings", () => {
 });
 
 describe("artifact tokens", () => {
-  it("round-trips and expires", () => {
-    const token = signArtifactToken({ artifactId: "a1", exp: Date.now() + 60_000 });
-    expect(verifyArtifactToken(token)?.artifactId).toBe("a1");
-    const expired = signArtifactToken({ artifactId: "a1", exp: Date.now() - 1000 });
+  it("round-trips, binds the org, and expires", () => {
+    const token = signArtifactToken({ artifactId: "a1", organizationId: "org-1", exp: Date.now() + 60_000 });
+    expect(verifyArtifactToken(token)).toEqual({ artifactId: "a1", organizationId: "org-1" });
+    const expired = signArtifactToken({ artifactId: "a1", organizationId: "org-1", exp: Date.now() - 1000 });
     expect(verifyArtifactToken(expired)).toBeNull();
     expect(verifyArtifactToken("garbage")).toBeNull();
     expect(verifyArtifactToken(`${token}x`)).toBeNull();

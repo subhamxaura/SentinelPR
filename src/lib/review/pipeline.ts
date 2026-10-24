@@ -3,7 +3,9 @@ import { env } from "@/lib/env";
 import { toAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { runRuleEngine, resolveRepoReviewConfig, toChangedFiles } from "@/lib/rules/engine";
+import { redactSecretContent } from "@/lib/rules/secrets";
 import { dedupeFindings, normalizeFinding } from "@/lib/review/normalize";
+import { shouldRetryReviewFailure } from "@/lib/review/retry";
 import { getReviewModel } from "@/lib/ai/model";
 import { computeRisk } from "@/lib/risk/engine";
 import { createCheckRun, fetchPullRequestData, publishReview } from "@/lib/github/client";
@@ -18,7 +20,10 @@ import { SEVERITY_RANK, RISK_RANK, type Finding, type RiskAssessment, type RiskL
 
 const log = logger.child({ module: "review-pipeline" });
 
-export async function processReviewRun(reviewRunId: string): Promise<void> {
+export async function processReviewRun(
+  reviewRunId: string,
+  opts: { attempt?: number; maxAttempts?: number } = {},
+): Promise<void> {
   const run = await prisma.reviewRun.findUnique({
     where: { id: reviewRunId },
     include: { pullRequest: true, repository: true },
@@ -60,6 +65,21 @@ export async function processReviewRun(reviewRunId: string): Promise<void> {
         url: ghPr.url,
       },
     });
+
+    if (ghPr.headSha !== run.headSha) {
+      const stale = {
+        code: "STALE_HEAD_SHA",
+        message: `Review superseded: the pull request head is ${ghPr.headSha}, but this run was queued for ${run.headSha}.`,
+        category: "github",
+        retryable: false,
+      };
+      await prisma.reviewRun.update({
+        where: { id: run.id },
+        data: { status: "error", error: JSON.stringify(stale), completedAt: new Date() },
+      });
+      runLog.info("Review run superseded by a newer commit", { queuedSha: run.headSha, currentSha: ghPr.headSha });
+      return;
+    }
 
     const config = resolveRepoReviewConfig(run.repository.config);
     const changedFiles = toChangedFiles(files);
@@ -112,8 +132,8 @@ export async function processReviewRun(reviewRunId: string): Promise<void> {
           startLine: f.startLine,
           endLine: f.endLine,
           title: f.title,
-          description: f.description,
-          evidence: f.evidence,
+          description: redactSecretContent(f.description),
+          evidence: f.evidence ? redactSecretContent(f.evidence) : null,
           suggestion: f.suggestion,
           dedupKey: f.dedupKey,
         })),
@@ -145,6 +165,7 @@ export async function processReviewRun(reviewRunId: string): Promise<void> {
           files: changedFiles.length,
           aiEnabled: Boolean(model),
         },
+        completedAt: new Date(),
       },
     });
 
@@ -183,11 +204,19 @@ export async function processReviewRun(reviewRunId: string): Promise<void> {
     });
   } catch (e) {
     const appErr = toAppError(e);
+    const attempt = Math.max(1, Math.trunc(opts.attempt ?? 1));
+    const maxAttempts = Math.max(1, Math.trunc(opts.maxAttempts ?? 1));
+    const retry = shouldRetryReviewFailure({ retryable: appErr.retryable, attempt, maxAttempts });
     await prisma.reviewRun.update({
       where: { id: run.id },
-      data: { status: "error", error: JSON.stringify(appErr.toJSON()), completedAt: new Date() },
+      data: {
+        status: retry ? "queued" : "error",
+        error: JSON.stringify(appErr.toJSON()),
+        completedAt: retry ? null : new Date(),
+      },
     });
-    runLog.error("Review run failed", { error: appErr.toJSON() });
+    runLog.error("Review run failed", { error: appErr.toJSON(), attempt, maxAttempts, retry });
+    if (retry) throw appErr;
   }
 }
 
@@ -270,6 +299,7 @@ interface RunForPublish {
   repositoryId: string;
   pullRequestId: string;
   headSha: string;
+  checkRunId?: string | null;
   repository: { installationId: string | null; fullName: string };
 }
 
@@ -289,6 +319,7 @@ async function publishGitHubFeedback(
     title: `SentinelPR — risk ${risk.level.toUpperCase()} (score ${risk.score})`,
     summary: buildCheckSummary(risk, findings, run.id),
     detailsUrl: `${env.dashboardUrl}/pull-requests/${run.pullRequestId}`,
+    checkRunId: run.checkRunId,
   });
   if (checkRunId) {
     await prisma.reviewRun.update({ where: { id: run.id }, data: { checkRunId } });
@@ -299,7 +330,13 @@ async function publishGitHubFeedback(
     .filter((f) => f.startLine !== null)
     .filter((f) => config.publishSeverities.includes(f.severity))
     .filter((f) => f.confidence >= config.confidenceThreshold)
-    .sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity])
+    .sort(
+      (a, b) =>
+        SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] ||
+        b.confidence - a.confidence ||
+        a.file.localeCompare(b.file) ||
+        (a.startLine ?? 0) - (b.startLine ?? 0),
+    )
     .slice(0, config.maxComments);
 
   if (!publishable.length) return;
@@ -349,9 +386,9 @@ function commentBody(f: Finding): string {
     `**${f.title}**`,
     `\`${f.category}\` · \`${f.severity}\` · confidence ${(f.confidence * 100).toFixed(0)}% · ${f.source === "ai" ? "AI" : "rule"}: \`${f.ruleId ?? "ai"}\``,
     "",
-    f.description,
+    redactSecretContent(f.description),
   ];
-  if (f.evidence) parts.push("", `\`\`\`\n${f.evidence}\n\`\`\``);
+  if (f.evidence) parts.push("", `\`\`\`\n${redactSecretContent(f.evidence)}\n\`\`\``);
   if (f.suggestion) parts.push("", `**Suggestion:** ${f.suggestion}`);
   return parts.join("\n");
 }
@@ -368,13 +405,19 @@ function buildCheckSummary(risk: RiskAssessment, findings: Finding[], runId: str
   ];
   const top = findings
     .slice()
-    .sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity])
+    .sort(
+      (a, b) =>
+        SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] ||
+        b.confidence - a.confidence ||
+        a.file.localeCompare(b.file) ||
+        (a.startLine ?? 0) - (b.startLine ?? 0),
+    )
     .slice(0, 10);
   if (top.length) {
     lines.push("", `<details><summary><strong>${findings.length} finding(s) — top ${top.length}</strong></summary>`, "");
     for (const f of top) {
       lines.push(`- **[${f.severity}] ${f.title}** — \`${f.file}${f.startLine ? `:${f.startLine}` : ""}\``);
-      lines.push(`  ${f.description.slice(0, 300)}`);
+      lines.push(`  ${redactSecretContent(f.description.slice(0, 300))}`);
     }
     lines.push("", "</details>");
   }

@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { redactSecretContent } from "@/lib/rules/secrets";
+import { safeFetch } from "@/lib/net/guard";
 
 /**
  * In-app alerts with dedup, plus optional outgoing webhook fan-out.
@@ -31,13 +33,22 @@ export interface RaiseAlertInput {
 /** Dedup key is unique per org: an open duplicate alert is updated, not re-created. */
 export async function raiseAlert(input: RaiseAlertInput): Promise<void> {
   const dedupKey = input.dedupKey ?? `${input.type}:${input.entityType ?? ""}:${input.entityId ?? ""}`;
+  const sanitizedTitle = redactSecretContent(input.title);
+  const sanitizedBody = input.body ? redactSecretContent(input.body) : undefined;
+  const sanitizedInput: RaiseAlertInput = {
+    ...input,
+    title: sanitizedTitle,
+    body: sanitizedBody,
+    dedupKey,
+  };
+
   try {
     await prisma.alert.upsert({
       where: { organizationId_dedupKey: { organizationId: input.organizationId, dedupKey } },
       update: {
         severity: input.severity,
-        title: input.title,
-        body: input.body,
+        title: sanitizedTitle,
+        body: sanitizedBody,
         status: "open",
         resolvedAt: null,
       },
@@ -45,8 +56,8 @@ export async function raiseAlert(input: RaiseAlertInput): Promise<void> {
         organizationId: input.organizationId,
         type: input.type,
         severity: input.severity,
-        title: input.title,
-        body: input.body,
+        title: sanitizedTitle,
+        body: sanitizedBody,
         entityType: input.entityType,
         entityId: input.entityId,
         dedupKey,
@@ -58,7 +69,7 @@ export async function raiseAlert(input: RaiseAlertInput): Promise<void> {
     return;
   }
   if (env.alertWebhookUrl) {
-    void deliverWebhook(input);
+    void deliverWebhook(sanitizedInput);
   }
 }
 
@@ -66,7 +77,7 @@ async function deliverWebhook(input: RaiseAlertInput): Promise<void> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10_000);
-    await fetch(env.alertWebhookUrl!, {
+    await safeFetch(env.alertWebhookUrl!, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({

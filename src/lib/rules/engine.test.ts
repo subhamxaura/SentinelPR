@@ -49,14 +49,15 @@ function ctx(overrides: Partial<RuleContext> = {}): RuleContext {
 }
 
 describe("runRuleEngine", () => {
-  it("flags hardcoded AWS keys as critical security findings", () => {
+  it("flags hardcoded AWS keys as critical security findings and redacts key material", () => {
+    const rawKey = ["AKIA", "IOSFODNN7QZ3JQ4T"].join("");
     const files = toChangedFiles([
       {
         filename: "src/config.ts",
         status: "modified",
         additions: 1,
         deletions: 0,
-        patch: "@@ -1,1 +1,2 @@\n const x = 1;\n+const key = 'AKIAIOSFODNN7QZ3JQ4T';",
+        patch: `@@ -1,1 +1,2 @@\n const x = 1;\n+const key = '${rawKey}';`,
       },
     ]);
     const findings = runRuleEngine(ctx({ files }));
@@ -65,6 +66,53 @@ describe("runRuleEngine", () => {
     expect(aws!.severity).toBe("critical");
     expect(aws!.startLine).toBe(2);
     expect(aws!.dedupKey).toContain("src/config.ts:2");
+    expect(aws!.evidence).not.toContain(rawKey);
+    expect(aws!.evidence).toContain("AKIA••••••••••••••••");
+  });
+
+  it("redacts synthetic GitHub tokens, Slack tokens, Google API keys, and private keys from evidence", () => {
+    const syntheticGh = ["ghp", "1234567890abcdefghijklmnopqrstuvwxyz1234"].join("_");
+    const syntheticSlack = ["xoxb", "1234567890", "abcdef12345678"].join("-");
+    const syntheticGoogle = ["AIzaSyD", "1234567890abcdef123456789012345"].join("-");
+    const syntheticGeneric = "supersecretpassword123";
+
+    const files = toChangedFiles([
+      {
+        filename: "src/creds.ts",
+        status: "modified",
+        additions: 4,
+        deletions: 0,
+        patch: [
+          "@@ -0,0 +1,4 @@",
+          `+const gh = "${syntheticGh}";`,
+          `+const slack = "${syntheticSlack}";`,
+          `+const gkey = "${syntheticGoogle}";`,
+          `+const password = "${syntheticGeneric}";`,
+        ].join("\n"),
+      },
+    ]);
+
+    const findings = runRuleEngine(ctx({ files }));
+
+    const ghFinding = findings.find((f) => f.ruleId === "secrets/github-token");
+    expect(ghFinding).toBeDefined();
+    expect(ghFinding!.evidence).not.toContain(syntheticGh);
+    expect(ghFinding!.evidence).toContain("ghp_••••••••••••••••");
+
+    const slackFinding = findings.find((f) => f.ruleId === "secrets/slack-token");
+    expect(slackFinding).toBeDefined();
+    expect(slackFinding!.evidence).not.toContain(syntheticSlack);
+    expect(slackFinding!.evidence).toContain("xoxb-••••••••••••••••");
+
+    const googleFinding = findings.find((f) => f.ruleId === "secrets/google-api-key");
+    expect(googleFinding).toBeDefined();
+    expect(googleFinding!.evidence).not.toContain(syntheticGoogle);
+    expect(googleFinding!.evidence).toContain("AIza••••••••••••••••");
+
+    const genericFinding = findings.find((f) => f.ruleId === "secrets/generic-assignment");
+    expect(genericFinding).toBeDefined();
+    expect(genericFinding!.evidence).not.toContain(syntheticGeneric);
+    expect(genericFinding!.evidence).toContain('••••••••');
   });
 
   it("flags eval usage", () => {
