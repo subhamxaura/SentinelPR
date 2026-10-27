@@ -18,6 +18,7 @@ export function startWorker(opts: {
   workerName: string;
   concurrency: number;
   processor: Processor;
+  metricsPort?: number;
 }) {
   const worker = new Worker(opts.queueName, opts.processor, {
     connection: getQueueConnection(),
@@ -29,6 +30,7 @@ export function startWorker(opts: {
   const metrics: WorkerMetrics = startWorkerMetrics({
     queueName: opts.queueName,
     workerName: opts.workerName,
+    port: opts.metricsPort,
   });
 
   // BullMQ exposes no per-worker in-flight count; track it from the events we

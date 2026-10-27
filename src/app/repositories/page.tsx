@@ -3,7 +3,7 @@ import { requirePageOrganization } from "@/lib/web/session";
 import { timeAgo } from "@/lib/web/format";
 import { PageHeader, Card, CardHeader, StatusBadge, Mono, Button } from "@/components/primitives";
 import { EmptyState } from "@/components/states";
-import { AddRepositoryForm, ClaimInstallationButton, TriggerReviewForm } from "@/components/forms";
+import { AddRepositoryForm, TriggerReviewForm } from "@/components/forms";
 import { appInstallationUrl } from "@/lib/github/client";
 import { env } from "@/lib/env";
 
@@ -23,38 +23,12 @@ export default async function RepositoriesPage() {
 
   const appUrl = appInstallationUrl();
 
-  // Webhook-driven installs arrive unclaimed; an admin binds them to this org.
-  const unclaimedInstallations = await prisma.githubInstallation.findMany({
-    where: { organizationId: null, removedAt: null },
-    orderBy: { createdAt: "desc" },
-  });
-
   return (
     <div>
       <PageHeader
         title="Repositories"
-        description="Repositories SentinelPR watches. GitHub-App installs arrive automatically via webhook."
+        description="Repositories SentinelPR watches. Connect your GitHub App or add repositories manually."
       />
-
-      {unclaimedInstallations.length > 0 ? (
-        <Card className="mb-6 border-amber-500/30 bg-amber-500/5 px-4 py-3">
-          <h3 className="text-[13px] font-semibold">Unclaimed GitHub App installations</h3>
-          <p className="mt-1 text-xs text-muted">
-            These installs are not bound to an organization yet — their repositories stay inactive until claimed.
-          </p>
-          <div className="mt-3 space-y-2">
-            {unclaimedInstallations.map((inst) => (
-              <div key={inst.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-line bg-surface-2 px-3 py-2">
-                <div className="text-[13px]">
-                  <span className="font-medium">{inst.accountLogin}</span>
-                  <span className="ml-2 font-mono text-[11px] text-faint">#{inst.installationId}</span>
-                </div>
-                <ClaimInstallationButton installationId={inst.id} />
-              </div>
-            ))}
-          </div>
-        </Card>
-      ) : null}
 
       <AddRepositoryForm />
 
@@ -63,7 +37,7 @@ export default async function RepositoriesPage() {
         <p className="mt-1 text-[13px] text-muted">
           The App enables automatic webhook-driven reviews, check runs and inline comments.{" "}
           {appUrl ? (
-            <a className="text-accent-strong hover:underline" href={appUrl}>
+            <a className="text-accent-strong font-semibold hover:underline" href="/api/installations/initiate">
               Install {env.github.appSlug ?? "SentinelPR"} →
             </a>
           ) : (

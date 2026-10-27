@@ -17,6 +17,11 @@ Go to <https://github.com/settings/apps/new> (or the organization equivalent):
 - Webhook URL: `https://<your-host>/api/github/webhook`
 - Webhook secret: generate a strong random value → this is `GITHUB_WEBHOOK_SECRET`
 
+**Setup URL (installation redirect)**
+- Setup URL: `https://<your-host>/api/installations/callback`
+- Redirect on setup: ✅
+- Enables single-use cryptographically bound installation flow linked directly to the initiating organization.
+
 **Permissions (minimum required)**
 
 | Permission | Access | Why |
@@ -47,9 +52,9 @@ both, which keeps multiline PEMs sane in process managers and CI secrets.
 
 ## 3. Install and verify
 
-1. Visit `https://github.com/apps/<slug>/installations/new` (Settings → linked from /repositories).
-2. Select repositories. The `installation` and `installation_repositories` webhooks create the
-   `GithubInstallation` and `Repository` rows automatically.
+1. From **Repositories**, click **Install <app-name>** (or visit `/api/installations/initiate`), which generates a signed, single-use state nonce bound to your organization.
+2. Select repositories on GitHub and approve. GitHub redirects to `/api/installations/callback` with `installation_id` and the signed `state`.
+3. SentinelPR validates the state signature, browser nonce cookie, and GitHub installation ownership via App API, transactionally binds the installation to your organization, and registers repositories. Webhooks (`installation` and `installation_repositories`) maintain ongoing repository state idempotently without crossing tenant boundaries.
 3. Open a PR. The `pull_request.opened` webhook creates a queued review run; the review worker
    fetches the PR through an installation token, runs the rule engine (+AI if enabled), persists
    findings, computes unified risk, then publishes the check run and inline comments.

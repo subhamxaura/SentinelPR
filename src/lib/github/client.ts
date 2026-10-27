@@ -56,9 +56,36 @@ export async function getOctokitForRepository(repo: RepoAuthContext) {
   );
 }
 
-export function appInstallationUrl(): string | null {
+export function appInstallationUrl(state?: string): string | null {
   const slug = env.github.appSlug;
-  return slug ? `https://github.com/apps/${slug}/installations/new` : null;
+  if (!slug) return null;
+  const base = `https://github.com/apps/${slug}/installations/new`;
+  return state ? `${base}?state=${encodeURIComponent(state)}` : base;
+}
+
+export interface GitHubInstallationDetails {
+  id: number;
+  accountLogin: string;
+  accountType: string;
+}
+
+/** Verify and fetch installation details directly from GitHub using App credentials. */
+export async function getInstallationDetails(installationId: number): Promise<GitHubInstallationDetails> {
+  const app = getGitHubApp();
+  if (!app) {
+    throw err.config("GitHub App is not configured (GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY).", "GITHUB_NOT_CONFIGURED");
+  }
+  try {
+    const { data } = await app.octokit.rest.apps.getInstallation({ installation_id: installationId });
+    const account = data.account as { login?: string; slug?: string; type?: string } | null;
+    return {
+      id: data.id,
+      accountLogin: account?.login ?? account?.slug ?? "unknown",
+      accountType: account?.type ?? "Unknown",
+    };
+  } catch (e) {
+    throw toAppError(e);
+  }
 }
 
 export interface InstallationRepo {
@@ -181,9 +208,10 @@ export interface CheckRunPayload {
   title: string;
   summary: string;
   detailsUrl?: string;
+  checkRunId?: string | null;
 }
 
-/** Create a check run on a specific commit. Returns the check run id, or null when publishing failed. */
+/** Create or update a check run on a specific commit. Returns the check run id, or null when publishing failed. */
 export async function createCheckRun(
   repo: RepoAuthContext,
   input: CheckRunPayload,
@@ -192,6 +220,24 @@ export async function createCheckRun(
   if (!owner || !name) return null;
   try {
     const { octokit } = await getOctokitForRepository(repo);
+    if (input.checkRunId) {
+      const checkRunIdNum = Number(input.checkRunId);
+      if (Number.isSafeInteger(checkRunIdNum) && checkRunIdNum > 0) {
+        await octokit.rest.checks.update({
+          owner,
+          repo: name,
+          check_run_id: checkRunIdNum,
+          status: input.status,
+          ...(input.status === "completed" && input.conclusion ? { conclusion: input.conclusion } : {}),
+          ...(input.detailsUrl ? { details_url: input.detailsUrl } : {}),
+          output: {
+            title: input.title,
+            summary: input.summary,
+          },
+        });
+        return String(input.checkRunId);
+      }
+    }
     const { data } = await octokit.rest.checks.create({
       owner,
       repo: name,

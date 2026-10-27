@@ -77,6 +77,35 @@ const MATCHERS: SecretMatcher[] = [
 const GENERIC_ASSIGNMENT =
   /\b(api[_-]?key|apikey|secret|secret[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|password|passwd|pwd|token)\b\s*[:=]{1,2}\s*(["'`])([^"'`\n]{8,})\2/i;
 
+export function redactSecretContent(input: string): string {
+  if (!input) return input;
+  let s = input;
+  // 1. AWS access key (e.g. AKIA...)
+  s = s.replace(/\b(AKIA)[0-9A-Z]{16}\b/g, "$1••••••••••••••••");
+  // 2. GitHub tokens (ghp_, gho_, ghu_, ghs_, ghr_)
+  s = s.replace(/\b(gh[pousr]_)[A-Za-z0-9]{30,}\b/g, "$1••••••••••••••••");
+  // 3. Slack tokens (xoxb-, xoxa-, xoxp-, etc.)
+  s = s.replace(/\b(xox[abprs]-)[A-Za-z0-9-]{10,}\b/g, "$1••••••••••••••••");
+  // 4. Google API keys (AIza...)
+  s = s.replace(/\b(AIza)[0-9A-Za-z_-]{35}\b/g, "$1••••••••••••••••");
+  // 5. PEM private key blocks
+  s = s.replace(
+    /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY( BLOCK)?-----[\s\S]*?(?:-----END (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY( BLOCK)?-----|$)/g,
+    "-----BEGIN PRIVATE KEY-----\n[REDACTED PRIVATE KEY MATERIAL]\n-----END PRIVATE KEY-----",
+  );
+  // 6. JSON Web Tokens
+  s = s.replace(
+    /\b(eyJ[A-Za-z0-9_-]{8,})\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g,
+    "$1.••••••••.••••••••",
+  );
+  // 7. Generic assignments (password, secret, token, api_key = "...")
+  s = s.replace(
+    /\b((?:api[_-]?key|apikey|secret|secret[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|password|passwd|pwd|token)\b\s*[:=]{1,2}\s*(["'`]))[^"'`\n]{8,}(\2)/gi,
+    "$1••••••••$3",
+  );
+  return s;
+}
+
 export const secretRules: FileRule[] = [
   ...MATCHERS.map((m) => ({
     id: `secrets/${m.idSuffix}`,
@@ -99,7 +128,7 @@ export const secretRules: FileRule[] = [
             endLine: line,
             title: m.title,
             description: m.description,
-            evidence: truncate(content.trim(), 160),
+            evidence: truncate(redactSecretContent(content.trim()), 160),
             suggestion: m.suggestion,
           });
           break; // one finding per file per matcher keeps noise down
@@ -134,7 +163,7 @@ export const secretRules: FileRule[] = [
             title: "Possible hardcoded credential",
             description:
               "This line assigns a literal value to a credential-named variable. Committed credentials outlive the PR — they remain in git history forever.",
-            evidence: truncate(redactTail(match[0]), 160),
+            evidence: truncate(redactSecretContent(match[0].trim()), 160),
             suggestion:
               "Load the value from an environment variable or secret manager. If this is a non-secret, rename the variable (e.g. `passwordPlaceholder`).",
           });
@@ -147,10 +176,4 @@ export const secretRules: FileRule[] = [
 
 function truncate(s: string, n: number): string {
   return s.length > n ? `${s.slice(0, n)}…` : s;
-}
-
-function redactTail(s: string): string {
-  // Keep the assignment side visible, mask the value half.
-  const idx = s.search(/["'`]/);
-  return idx > 0 ? `${s.slice(0, idx)}"•••"` : s;
 }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { authMode } from "@/lib/auth/mode";
 import { buildAuthorizeUrl } from "@/lib/auth/github-oauth";
 import { createSignedState, sanitizeRedirect } from "@/lib/auth/crypto";
+import { setOAuthStateCookie } from "@/lib/auth/oauth-cookie";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,8 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const redirectTo = sanitizeRedirect(url.searchParams.get("redirectTo"));
 
-  const { state } = createSignedState(redirectTo);
-  return NextResponse.redirect(buildAuthorizeUrl(state));
+  const { state, nonce } = createSignedState(redirectTo);
+  const response = NextResponse.redirect(buildAuthorizeUrl(state));
+  setOAuthStateCookie(response, nonce);
+  return response;
 }

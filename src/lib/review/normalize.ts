@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CATEGORIES, SEVERITIES, FINDING_KINDS } from "@/lib/types";
 import type { Finding, Severity, Category, FindingKind } from "@/lib/types";
+import { redactSecretContent } from "@/lib/rules/secrets";
 
 const severitySchema = z.enum(SEVERITIES);
 const categorySchema = z.enum(CATEGORIES);
@@ -63,8 +64,8 @@ export function normalizeFinding(input: unknown): Finding {
     endLine:
       f.endLine !== null && f.startLine !== null && f.endLine >= f.startLine ? f.endLine : f.startLine,
     title: f.title.trim().slice(0, 300),
-    description: f.description.trim().slice(0, MAX_DESCRIPTION),
-    evidence: f.evidence ? f.evidence.trim().slice(0, MAX_EVIDENCE) : null,
+    description: redactSecretContent(f.description.trim().slice(0, MAX_DESCRIPTION)),
+    evidence: f.evidence ? redactSecretContent(f.evidence.trim().slice(0, MAX_EVIDENCE)) : null,
     suggestion: f.suggestion ? f.suggestion.trim().slice(0, MAX_EVIDENCE) : null,
     dedupKey: f.dedupKey.slice(0, 600),
   };

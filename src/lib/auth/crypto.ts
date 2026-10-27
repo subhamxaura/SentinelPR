@@ -28,7 +28,12 @@ interface StatePayload {
 }
 
 function stateSecret(): Buffer {
-  return Buffer.from(env.auth.stateSecret ?? `state-fallback:${env.databaseUrl || "none"}`, "utf8");
+  const configured = env.auth.stateSecret;
+  if (configured) return Buffer.from(configured, "utf8");
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("AUTH_STATE_SECRET is required in production.");
+  }
+  return Buffer.from("sentinelpr-local-oauth-state", "utf8");
 }
 
 /** HMAC-signed, expiring OAuth state. Ties the callback to a browser-initiated flow (CSRF defense). */
@@ -61,9 +66,71 @@ export function verifySignedState(state: string): { nonce: string; redirectTo: s
   }
 }
 
+export function stateNonceMatches(expected: string, received: string | null | undefined): boolean {
+  if (!expected || !received) return false;
+  const a = Buffer.from(expected);
+  const b = Buffer.from(received);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+const DUMMY_BASE = "https://sentinel.local";
+
 /** Only same-origin relative paths survive into post-sign-in redirects. */
 export function sanitizeRedirect(value: string | null | undefined): string {
-  if (!value) return "/";
+  if (!value || typeof value !== "string") return "/";
+
+  // Reject ASCII control characters (0x00 - 0x1F, 0x7F)
+  if (/[\u0000-\u001f\u007f]/.test(value)) return "/";
+
+  // Reject literal backslashes anywhere in the URL string
+  if (value.includes("\\")) return "/";
+
+  // Must begin with a single "/" and never protocol-relative "//"
   if (!value.startsWith("/") || value.startsWith("//")) return "/";
+
+  // Fail fast on malformed percent encodings
+  try {
+    decodeURI(value);
+  } catch {
+    return "/";
+  }
+
+  // Canonical URL parse against fixed dummy origin
+  let parsed: URL;
+  try {
+    parsed = new URL(value, DUMMY_BASE);
+  } catch {
+    return "/";
+  }
+
+  if (parsed.origin !== DUMMY_BASE) return "/";
+  if (parsed.protocol !== "https:") return "/";
+  if (!parsed.pathname.startsWith("/") || parsed.pathname.startsWith("//")) return "/";
+
+  // Inspect path component specifically (before "?" or "#")
+  const pathPart = value.split(/[?#]/)[0];
+  let decodedPath = pathPart;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const next = decodeURIComponent(decodedPath);
+      if (next === decodedPath) break;
+      decodedPath = next;
+    } catch {
+      return "/";
+    }
+  }
+
+  // Reject if decoded path contains control chars, backslashes, or starts with // or /\
+  if (/[\u0000-\u001f\u007f]/.test(decodedPath)) return "/";
+  if (
+    decodedPath.startsWith("//") ||
+    decodedPath.startsWith("/\\") ||
+    decodedPath.includes("\\") ||
+    /%5c/i.test(pathPart) ||
+    /%2f/i.test(pathPart)
+  ) {
+    return "/";
+  }
+
   return value;
 }

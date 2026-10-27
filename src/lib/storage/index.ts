@@ -28,20 +28,60 @@ export function sha256(buf: Buffer): string {
   return createHash("sha256").update(buf).digest("hex");
 }
 
+export const MAX_ARTIFACT_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
+
+/** Resolve a storage key under baseDir, rejecting sibling-prefix, absolute and traversal escapes. */
+export function resolveStoragePath(baseDir: string, key: string): string {
+  if (
+    !key ||
+    typeof key !== "string" ||
+    key.includes("\0") ||
+    path.posix.isAbsolute(key) ||
+    path.win32.isAbsolute(key) ||
+    key.startsWith("/") ||
+    key.startsWith("\\") ||
+    /^[a-zA-Z]:/.test(key)
+  ) {
+    throw err.internal("Invalid artifact key");
+  }
+
+  // Reject traversal patterns across both POSIX and Windows separators
+  const normalizedKey = key.replace(/\\/g, "/");
+  const segments = normalizedKey.split("/");
+  if (segments.some((segment) => segment === "..")) {
+    throw err.internal("Invalid artifact key");
+  }
+
+  const base = path.resolve(baseDir);
+  const full = path.resolve(base, normalizedKey);
+  const relative = path.relative(base, full);
+  if (
+    !relative ||
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    relative.startsWith("../") ||
+    relative.startsWith("..\\") ||
+    path.isAbsolute(relative) ||
+    path.posix.isAbsolute(relative) ||
+    path.win32.isAbsolute(relative)
+  ) {
+    throw err.internal("Invalid artifact key");
+  }
+  return full;
+}
+
 class LocalFsStorage implements ArtifactStorage {
   readonly id = "local";
   constructor(private readonly baseDir: string) {}
 
   private resolve(key: string): string {
-    const full = path.resolve(this.baseDir, key);
-    // Path traversal guard: keys are server-generated, but enforce the invariant.
-    if (!full.startsWith(path.resolve(this.baseDir))) {
-      throw err.internal("Invalid artifact key");
-    }
-    return full;
+    return resolveStoragePath(this.baseDir, key);
   }
 
   async put(key: string, body: Buffer): Promise<void> {
+    if (body.length > MAX_ARTIFACT_SIZE_BYTES) {
+      throw err.config("Artifact exceeds maximum allowed size (50MB)");
+    }
     const full = this.resolve(key);
     await mkdir(path.dirname(full), { recursive: true });
     await writeFile(full, body);
@@ -79,6 +119,9 @@ class S3Storage implements ArtifactStorage {
   }
 
   async put(key: string, body: Buffer, contentType: string): Promise<void> {
+    if (body.length > MAX_ARTIFACT_SIZE_BYTES) {
+      throw err.config("Artifact exceeds maximum allowed size (50MB)");
+    }
     const { PutObjectCommand } = await import("@aws-sdk/client-s3");
     const client = await this.getClient();
     await client.send(

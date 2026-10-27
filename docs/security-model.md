@@ -23,11 +23,12 @@ without a container boundary is deliberately NOT implemented — see Limitations
 
 - `X-Hub-Signature-256` validated with HMAC-SHA256 in constant time against the raw request body;
   failures are rejected 401 before parsing.
-- Deliveries are deduplicated by the `X-GitHub-Delivery` id (unique index) — redeliveries are
-  acknowledged without side effects.
+- Deliveries are deduplicated by the `X-GitHub-Delivery` id (unique index); duplicate deliveries
+  are acknowledged without side effects. A delivery that failed processing is re-claimed and
+  reprocessed when GitHub redelivers the same id.
 - The endpoint validates and records, then enqueues and responds 202 — no analysis on the request
-  path. Malformed payloads are rejected 400; processing errors are recorded per delivery for
-  debugging, and GitHub's retry policy covers transient failures.
+  path. Missing delivery ids and non-object payloads are rejected 400; processing errors are
+  recorded per delivery for debugging, and GitHub's retry policy covers transient failures.
 
 ## Secrets handling
 
@@ -37,6 +38,11 @@ without a container boundary is deliberately NOT implemented — see Limitations
   patterns) before writing a line.
 - No secret ever crosses into a client component; API routes return structured errors, never stack
   traces.
+- Artifact URLs use a dedicated HMAC secret (`ARTIFACT_TOKEN_SECRET`, or a domain-separated
+  `AUTH_STATE_SECRET` fallback). Production fails closed if neither is configured; the local
+  development fallback is never used for a production sign/verify.
+- OAuth `state` uses `AUTH_STATE_SECRET`; production fails closed if it is missing. The local
+  development fallback is a fixed in-process constant, never derived from the database URL.
 
 ## Authentication & sessions (OAuth mode)
 
@@ -52,9 +58,10 @@ OAuth mode guarantees:
 - The browser holds only an opaque 256-bit token in an **HttpOnly, SameSite=Lax** cookie (Secure in
   production). The database stores only its SHA-256 digest; a stolen database backup cannot be
   replayed into sessions.
-- OAuth `state` is HMAC-signed and expiring (10 minutes) with the same construction as artifact
-  tokens, binding the callback to a browser-initiated flow (CSRF defense). Post-sign-in redirects
-  are restricted to same-origin relative paths.
+- OAuth `state` is HMAC-signed and expiring (10 minutes). Its nonce is also bound to a short-lived
+  HttpOnly, SameSite=Lax cookie scoped to `/api/auth/github`, so a state minted for one browser
+  cannot complete a callback in another (CSRF defense). Post-sign-in redirects are restricted to
+  same-origin relative paths.
 - Sessions live in the `Session` table with a 7-day sliding expiry, hashed IP metadata, and
   user-agent capture. Sign-out deletes the row and the cookie.
 - GitHub identity is matched by **primary verified email** (via `/user/emails`), with the unique
@@ -72,14 +79,16 @@ OAuth mode guarantees:
   every API route. In local mode the check is a no-op (single trusted operator).
 - **Access provisioning:** users get memberships from pre-created rows, pending
   `OrganizationInvite` rows (consumed at sign-in), or — unless `AUTH_ALLOW_DEFAULT_ORG_SIGNUP=0` —
-  auto-join the default organization (first user becomes owner). With auto-join disabled and no
+  auto-join the default organization. The first-member/owner decision runs in a serializable
+  transaction with bounded retries, so concurrent first sign-ins cannot create two owners. With
+  auto-join disabled and no
   invite, sign-in lands on an access-pending screen and exposes no data. From there users can
   **request access** (`POST /api/access-requests`, authenticated by session only): admins see the
   request on `/team` and approve (membership granted transactionally) or deny it. Requesters and
   denied users see their status on the sign-in screen; no dashboard data is exposed to them.
 - Artifact bytes (screenshots, diffs, baselines) are never publicly readable: pages mint
-  short-lived HMAC-signed URLs; `/api/artifacts/:id` verifies the token binds to the artifact id
-  and expiry.
+  short-lived HMAC-signed URLs; `/api/artifacts/:id` verifies the token binds to the artifact id,
+  organization and expiry, then queries the artifact within that organization.
 
 ## SSRF guard (visual suites & synthetic monitors)
 
@@ -90,9 +99,14 @@ is guarded in `src/lib/net/guard.ts`:
 2. Hostname blocklist: `localhost`, `*.local`, `*.internal`, `host.docker.internal`, cloud metadata
    hostnames.
 3. DNS resolution + IP blocklist: loopback, RFC1918, CGNAT, link-local (169.254/16 — includes
-   cloud metadata endpoints), benchmark and reserved ranges, IPv6 loopback/ULA/link-local and
-   IPv4-mapped addresses.
-4. `SENTINEL_ALLOW_PRIVATE_TARGETS=1` relaxes this **for local development only** (documented in
+   cloud metadata endpoints), benchmark and reserved ranges. IPv6 parsing covers compressed/
+   expanded forms, IPv4-mapped and IPv4-compatible forms, ULA/link-local/site-local/multicast,
+   6to4 and Teredo tunnels embedding private addresses, and NAT64 prefixes.
+4. Every redirect target for synthetic `request` steps is revalidated before it is followed;
+   cross-origin redirects drop `Authorization`, `Cookie` and `Proxy-Authorization` headers.
+   Playwright HTTP subresources, redirects and WebSocket connections are routed through the same
+   guard, and service workers are disabled in worker browser contexts.
+5. `SENTINEL_ALLOW_PRIVATE_TARGETS=1` relaxes this **for local development only** (documented in
    `.env.example`).
 
 **Known limitation — DNS rebinding:** the guard validates at URL-configuration/request time; the
@@ -104,9 +118,11 @@ v1 boundary; production deployments should place workers in a network-isolated e
 
 - Separate OS processes (`src/workers/*`) with per-queue concurrency limits, 10-minute job locks,
   stalled-job detection, retries with exponential backoff, and graceful shutdown.
-- Playwright contexts use fixed locale/timezone/reduced-motion; runs have per-step and per-run
-  timeouts. Browser processes are closed on all paths.
-- Separate artifact keys per organization keep storage logically partitioned.
+- Playwright contexts use fixed locale/timezone/reduced-motion; synthetic runs enforce a 20s step
+  cap and 180s run deadline, abort the browser and close processes on every path. Service workers
+  are disabled so subresource request routing cannot be bypassed.
+- Separate artifact keys per organization keep storage logically partitioned; local-disk keys are
+  resolved with an exact containment check, not a sibling-prefix `startsWith` check.
 
 ## Multi-tenancy status (honest)
 
@@ -114,14 +130,24 @@ The schema has been multi-tenant from day one (organizations, members, every dom
 org). **OAuth mode completes the deployment story:** users authenticate with GitHub, sessions are
 stored server-side, and every query is scoped by membership.
 
-GitHub App installations arrive via webhook **unclaimed** — an organization identity cannot be
-derived from a webhook payload. An admin claims the installation from the Repositories page
-(`POST /api/installations/:id/claim`, admin/owner only), which binds it to exactly one
-organization and backfills its repositories. Until claimed, those repositories remain inactive and
-PR events are skipped rather than leaking into a default tenant.
+GitHub App installations use a cryptographically bound, single-use state flow. An authenticated
+administrator initiates the installation from the Repositories page (`GET /api/installations/initiate`),
+which mints an HMAC-signed state nonce bound to the active organization ID, initiating user ID, and
+expiration, and sets a short-lived HttpOnly SameSite=Lax cookie. When GitHub redirects back to the
+setup callback (`GET /api/installations/callback`), SentinelPR validates the signature, browser cookie
+nonce, expiration, and checks the installation's existence and ownership directly against the GitHub
+App API. The installation is transactionally bound to the target organization, and repositories are
+registered safely. Cross-tenant enumeration of unclaimed installations is completely eliminated; legacy
+claim routes require verified single-use signed state and reject cross-tenant or guessed IDs (403/409).
+A repository already owned by a different organization is a 409 conflict; registration never transfers
+ownership. Webhook delivery ledgers are strictly scoped to repositories owned by the acting organization.
 
 Residual boundaries to know about:
 
+- OAuth accounts are keyed by verified email, with the mutable GitHub login as the email-change
+  fallback. The schema does not store GitHub's immutable numeric user id, so a recycled GitHub
+  username could match an old local row if the verified email also differs. Add a `githubId`
+  column/migration if your threat model requires stronger identity binding.
 - In **local** mode there is no authentication at all — keep localhost-only, or put your own auth
   (reverse-proxy SSO, mTLS) in front.
 - Roles are organization-global; per-resource ACLs (e.g. a member limited to one suite) are not
