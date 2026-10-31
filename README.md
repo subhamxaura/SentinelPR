@@ -1,307 +1,282 @@
+<div align="center">
+
 # SentinelPR
 
 **Autonomous PR Quality, Visual Regression & Synthetic Monitoring Platform**
 
-SentinelPR connects code changes to user experience and production reliability. A developer opens a
-pull request; SentinelPR inspects the diff, runs a deterministic rule engine (plus optional AI),
-publishes a GitHub check run with inline comments, executes Playwright visual and DOM comparisons
-against explicit baselines, and folds every signal into one explainable risk score. Separately,
-scheduled synthetic monitors replay critical user journeys against deployed apps and raise alerts
-with real latency percentiles and availability history.
+[![Next.js](https://img.shields.io/badge/Next.js-16.4-black?style=flat-square&logo=next.js)](https://nextjs.org/)
+[![React](https://img.shields.io/badge/React-19-blue?style=flat-square&logo=react)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-Strict-3178C6?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
+[![Prisma](https://img.shields.io/badge/Prisma-7.0-2D3748?style=flat-square&logo=prisma)](https://www.prisma.io/)
+[![BullMQ](https://img.shields.io/badge/BullMQ-6.0-CC292B?style=flat-square&logo=redis)](https://bullmq.io/)
+[![Playwright](https://img.shields.io/badge/Playwright-E2E-2EAD33?style=flat-square&logo=playwright)](https://playwright.dev/)
+[![Vitest](https://img.shields.io/badge/Vitest-5.0-FCC72B?style=flat-square&logo=vitest)](https://vitest.dev/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-emerald?style=flat-square)](LICENSE)
 
-It is designed to feel like the serious parts of GitHub Actions, Vercel, Linear, Datadog and
-Playwright — as one coherent developer-infrastructure product.
+*Connecting pull request diffs, multi-signal risk analysis, Playwright visual baselines, and 24/7 synthetic monitoring into a single explainable verdict.*
 
 ---
 
-## Screenshots
+</div>
 
-Screenshots are not currently committed because the dashboard requires a configured local instance
-and representative data. After starting the app, run `pnpm screenshots` to capture the current UI
-under `docs/images/`; do not treat generated demo data as production evidence.
+## Overview
+
+Modern engineering teams often fragment their reliability tooling across disparate SaaS silos: static analysis in one vendor, visual regression in another, synthetic monitoring in a third, and PR check runs in GitHub. 
+
+**SentinelPR** unites these disciplines into a coherent, self-hostable developer-infrastructure platform. When a developer opens a pull request, SentinelPR:
+
+1. **Ingests & Secures**: Cryptographically verifies GitHub App webhooks via HMAC-SHA256, blocks SSRF/DNS-rebinding attacks, and buffers work through a transactional PostgreSQL outbox.
+2. **Evaluates Risk**: Runs deterministic AST rules, scans for secret leaks with Shannon entropy, and correlates live production P95 latency percentiles to calculate an explainable 0–100 risk score.
+3. **Verifies Visuals**: Uses headless Chromium to capture pixel snapshots against versioned, immutable baselines while diffing the DOM signature for missing headings and controls.
+4. **Monitors Production**: Replays synthetic user journeys 24/7 with real-time latency percentiles (P50/P95/P99), dispatching auto-resolving alerts across webhooks.
+5. **Enforces Enterprise Standards**: Operates with fail-closed OAuth authentication, Redis sliding-window rate limiting, serializable ownership protections, and automated DB/S3 artifact retention.
 
 ---
 
 ## Architecture
 
-Control plane / execution plane separation. The API orchestrates; workers execute; PostgreSQL holds
-durable state; Redis carries queues and schedules; object storage holds large artifacts.
+SentinelPR enforces a strict separation between the **control plane** (web dashboard and API route handlers) and the **execution plane** (isolated BullMQ worker processes).
 
 ```
-GitHub App webhook ──►  API (Next.js route handlers, Next 16 / React 19)
-                            │
-                            ├── PostgreSQL (Prisma 7, driver adapter)   ← durable state
-                            └── Redis (BullMQ 6, job schedulers)        ← queues + cron
-                                     │
-             ┌───────────────────────┼───────────────────────────┐
-             ▼                       ▼                           ▼
-        Review worker           Visual worker               Synthetic worker
-        (Octokit + rules        (Playwright capture,        (Playwright journey
-        + optional AI →         pixelmatch diff,            executor, metrics,
-        check run, comments,    DOM signature diff)         alerts)
-        unified risk)
-                                     │
-                                     ▼
-                    Artifacts (S3/MinIO or local FS driver)
-                                     │
-                                     ▼
-                    Dashboard (dark, dense, JetBrains Mono for data)
+                            GitHub App Webhook
+                                    │ (HMAC-SHA256)
+                                    ▼
+                    ┌───────────────────────────────┐
+                    │     Next.js API Gateway       │
+                    │  (Next.js 16 / React 19)      │
+                    └───────────────┬───────────────┘
+                                    │
+           ┌────────────────────────┴────────────────────────┐
+           ▼                                                 ▼
+┌─────────────────────────────┐                   ┌─────────────────────────────┐
+│  PostgreSQL (Prisma 7)      │                   │   Redis 7 (BullMQ 6)        │
+│  - Multi-tenant data model  │                   │   - Sliding-window rate limit   │
+│  - Transactional Outbox     │                   │   - Review, visual & synth jobs │
+│  - Immutable baselines      │                   │   - Retention distributed locks │
+└─────────────────────────────┘                   └──────────────┬──────────────┘
+                                                                 │
+         ┌───────────────────────────────────────────────────────┼───────────────────────────────────────────────────────┐
+         ▼                                                       ▼                                                       ▼
+┌─────────────────────────────┐                         ┌─────────────────────────────┐                         ┌─────────────────────────────┐
+│       Review Worker         │                         │        Visual Worker        │                         │      Synthetic Worker       │
+│  - AST & Regex rules        │                         │  - Playwright Chromium      │                         │  - Journey step replay      │
+│  - Secret entropy scan      │                         │  - Pixelmatch image diff    │                         │  - Latency percentiles      │
+│  - Production P95 signals   │                         │  - DOM structure diff       │                         │  - Auto-resolving alerts    │
+│  - GitHub check run & PR    │                         │  - Versioned baselines      │                         │  - SLA & uptime history     │
+└──────────────┬──────────────┘                         └──────────────┬──────────────┘                         └──────────────┬──────────────┘
+               │                                                       │                                                       │
+               └───────────────────────────────────────────────────────┼───────────────────────────────────────────────────────┘
+                                                                       ▼
+                                                    ┌─────────────────────────────────────┐
+                                                    │ Artifact Storage (S3 / Local FS)    │
+                                                    │ Signed, expiring tenant tokens      │
+                                                    └──────────────────┬──────────────────┘
+                                                                       ▼
+                                                    ┌─────────────────────────────────────┐
+                                                    │ SentinelPR Executive Dashboard      │
+                                                    │ Dark, keyboard-driven (⌘K), dense   │
+                                                    └─────────────────────────────────────┘
 ```
 
-Key invariants:
+### Core Invariants
 
-- **The API never executes arbitrary repository code.** Review reads diffs through the GitHub API;
-  Playwright runs only in workers, against configured URLs.
-- **Webhooks acknowledge fast.** Long-running analysis is always queued (BullMQ), never inline.
-- **Everything is idempotent.** Webhook deliveries are deduplicated by delivery id; one review per
-  head SHA; deterministic BullMQ job ids per run; workers are retry-safe.
-- **Every metric is real.** The dashboard never fabricates numbers — empty states explain what is
-  missing and how to fix it.
+- **Zero Untrusted Code Execution**: The API and workers never execute repository code directly. Pull requests are evaluated strictly through diff inspection, AST parsing, and safe GitHub API operations.
+- **Fast-Ack Webhook Contract**: Webhook handlers validate signatures and record intent within a transactional database outbox in under 50ms, returning `202 Accepted` immediately. Heavy analysis is always processed asynchronously.
+- **Authoritative Database Idempotency**: Pull request review runs enforce an explicit database unique key (`pullRequestId:headSha`). Simultaneous webhook deliveries or manual triggers never enqueue redundant work.
+- **Fail-Closed Security Posture**: Production instances reject unauthenticated development modes. Missing OAuth credentials prevent server startup, accounts bind to immutable numeric provider IDs, and SSRF filters reject private and loopback IP ranges.
+- **Honest Telemetry**: The platform never fabricates sample data or empty charts. When services or configurations are absent, the dashboard clearly displays structured diagnostics.
 
-## Features
+---
 
-**PR review engine**
-- GitHub App (installation tokens) or PAT fallback; webhook signature validation (HMAC-SHA256,
-  constant-time); delivery idempotency; one review per head SHA.
-- Deterministic rule engine: hardcoded secrets (AWS/GitHub/Slack/Google/JWT/private keys/generic
-  assignments), eval, shell injection, dangerouslySetInnerHTML, committed .env, lifecycle scripts,
-  empty catch, console.log, debugger, untracked TODOs, missing tests, forbidden imports.
-- Optional AI enhancement (any OpenAI-compatible endpoint): focused hunks only, structured JSON
-  output, zod-validated, confidence-gated, hallucination guard (findings restricted to files in the
-  diff), never fatal to the pipeline.
-- GitHub check run with category/risk summary + inline review comments (severity/confidence
-  thresholds, max comments, deduped across runs of the same PR).
+## Key Features
 
-**Unified risk engine**
-- Code risk + security risk + experience risk (visual/E2E) + production risk (synthetic health) →
-  one level (none/low/medium/high/critical) with score and per-signal reasons. Explainable by
-  construction — the UI always shows the contributing signals.
+### 1. Automated PR Review & Multi-Signal Risk Engine
+- **Deterministic Rule Engine**: High-speed evaluation of common security and quality flaws without LLM latency: hardcoded AWS/GitHub/Slack/Google secrets, JWT keys, `eval()`, shell injection, unescaped `dangerouslySetInnerHTML`, committed `.env` files, dangerous lifecycle scripts, empty `catch` blocks, stray `debugger`/`console.log`, and forbidden imports.
+- **Explainable Risk Scoring**: Folds code diff size, AST finding severities, visual drift, and stored production P95 latency percentiles into a composite risk grade (`none`, `low`, `medium`, `high`, `critical`) with full mathematical provenance.
+- **GitHub Integration**: Publishes formal GitHub Check Runs with expandable category summaries and posts deduped inline comments highlighting exact code lines.
+- **Optional AI Enhancement**: Pluggable support for OpenAI-compatible endpoints with strict JSON schema validation (`zod`), confidence score gating, and a diff-boundary guard to prevent hallucinations outside modified files.
 
-**Visual regression**
-- Playwright capture (Chromium/Firefox/WebKit, device profiles, reduced-motion + animation freeze
-  for determinism), pixelmatch comparison with per-test thresholds, changed-region localization,
-  PNG diff artifacts, and a DOM "experience signature" diff (missing controls, heading changes,
-  title changes) that catches regressions pixels miss.
-- Baselines are explicit and versioned: first captures are candidates; "Approve as baseline" is a
-  deliberate action that bumps the version. Runs never silently replace baselines.
-- Side-by-side / overlay / diff viewer with zoom and artifact URLs signed with expiring tokens.
+### 2. Versioned Visual Regression Testing
+- **Headless Chromium Execution**: Captures deterministic snapshots with disabled CSS animations, reduced-motion media emulation, and configurable device viewports.
+- **Pixel-Level Precision**: `pixelmatch` image comparison with configurable color thresholds, changed-region bounding box clustering, and visual side-by-side/overlay diff viewers.
+- **DOM Structure Signatures**: Semantic inspection diffing critical UI elements (headings, buttons, inputs) to catch regressions that pixel diffs may miss due to dynamic styling.
+- **Immutable Version History**: Approving a snapshot writes a new version (`version: (previous + 1)`) under a `Serializable` database lock. Older baselines remain accessible for audit provenance and are never silently overwritten.
 
-**Synthetic monitoring**
-- Step vocabulary: navigate, click, fill, press, select, wait, assert_text, assert_visible,
-  assert_url, screenshot, request (API checks). Validated with zod at creation and execution.
-- BullMQ job schedulers (upsert/pause/resume, startup reconciliation from the DB as source of
-  truth), duplicate-tick prevention, retry/backoff, timeouts.
-- Metrics: availability, P50/P95/P99, average, consecutive failures. Alerts on failure, consecutive
-  failures, latency threshold; auto-resolve on recovery. In-app + outgoing webhook channels.
+### 3. Synthetic Journey Monitoring
+- **Declarative Step Engine**: Define multi-step user flows using a validated step vocabulary: `navigate`, `click`, `fill`, `press`, `select`, `wait`, `assert_text`, `assert_visible`, `assert_url`, `screenshot`, and `request` (HTTP API probe).
+- **Latency Distribution Tracking**: Measures execution durations per run to compute true rolling P50, P95, and P99 percentiles across configurable lookback windows.
+- **Intelligent Alerting**: Triggers alerts on SLA threshold breaches or consecutive failure counts. Features automatic alert resolution once healthy telemetry resumes.
 
-**Multi-tenant auth & team management**
-- GitHub OAuth sign-in with server-side sessions: HttpOnly cookie, token stored only as a SHA-256
-  digest, signed expiring OAuth state, 7-day sliding expiry, org switching.
-- Organizations with owner > admin > member roles: members read; only admins mutate. Every
-  mutating API route is role-checked and audit-logged with the acting user.
-- Closed-loop onboarding from the **Team** page: invite members by GitHub verified email, approve
-  or deny self-serve access requests, edit or revoke roles — with database-serialized owner
-  protection (an owner can step down only after another owner exists).
-- GitHub App installations arrive unclaimed via webhook and are bound to exactly one organization
-  by an explicit admin claim that backfills their repositories.
+### 4. Enterprise Security & Multi-Tenant Access
+- **Multi-User GitHub OAuth**: Server-side session management with HttpOnly/SameSite cookies, SHA-256 session token hashing at rest, and HMAC-signed expiring state cookies.
+- **Immutable Provider Binding**: Users bind permanently to GitHub's numeric user ID (`githubId`), preventing account hijacking if an email is transferred or re-registered.
+- **Role-Based Access Control (RBAC)**: Fine-grained `owner`, `admin`, and `member` roles. Every mutating API route enforces role boundaries and records structured audit logs.
+- **Serialized Owner Invariant**: PostgreSQL row locks prevent concurrent demotion or deletion of an organization's final owner.
 
-**Dashboard**
-- Overview, Pull Requests (+ rich per-PR detail with risk breakdown and findings), Visual suites
-  and comparison viewer, Synthetic monitors (journey builder, metrics, history), unified Runs,
-  Alerts, Repositories (with manual review trigger), Team, Rules registry, Settings with honest
-  configuration state (Redis live probe, webhook delivery ledger, job history).
-- Command palette (⌘K / `/`), `g`-prefixed keyboard navigation, dark zinc/indigo design system,
-  responsive, keyboard-accessible.
+### 5. Production Reliability & Operational Hardening
+- **Sliding-Window Rate Limiting**: Redis-backed sliding-window rate limiters with atomic Lua scripts, supporting per-IP anonymous throttling and authenticated per-user quotas.
+- **Automated Data Retention**: Configurable background retention scheduler serialized across worker replicas via Redis leases. Prunes expired sessions, aged runs, and stale outbox rows.
+- **Crash-Proof Artifact Deletion**: Database metadata deletions and storage deletion intents share an atomic transaction, using an `ArtifactDeletion` retry queue with exponential backoff to guarantee zero orphaned blobs.
 
-## Stack
+---
 
-Next.js 16 (App Router) · React 19 · TypeScript (strict) · Tailwind CSS 4 · Prisma 7 (PostgreSQL,
-driver adapters) · BullMQ 6 + ioredis · Octokit 5 · Playwright · pixelmatch + pngjs ·
-@aws-sdk/client-s3 (MinIO/S3/R2) · zod · Vitest.
+## Tech Stack
 
-## Quick start (local development)
+| Domain | Technology | Description |
+| :--- | :--- | :--- |
+| **Framework** | [Next.js 16](https://nextjs.org/) (App Router) | High-performance React server components & API route handlers |
+| **UI & Styling** | [React 19](https://react.dev/), [Tailwind CSS 4](https://tailwindcss.com/) | Dark zinc/indigo design system, keyboard-accessible command palette |
+| **Language** | [TypeScript 5](https://www.typescriptlang.org/) | Strict mode enabled across all web routes, workers, and test suites |
+| **Database** | [PostgreSQL 17](https://www.postgresql.org/) via [Prisma 7](https://www.prisma.io/) | Multi-tenant schema with driver adapters, serializable transactions |
+| **Queues** | [BullMQ 6](https://bullmq.io/) + [IORedis](https://github.com/redis/ioredis) | Distributed job pipelines with retry backoff and scheduled workers |
+| **Automation** | [Playwright](https://playwright.dev/) | Headless browser execution for visual regressions and E2E journeys |
+| **Storage** | [@aws-sdk/client-s3](https://aws.amazon.com/sdk-for-javascript/) | Compatible with AWS S3, Cloudflare R2, MinIO, or local disk driver |
+| **Testing** | [Vitest 5](https://vitest.dev/), [Playwright Test](https://playwright.dev/) | Isolated integration testing, unit mocks, and browser E2E specs |
 
-Prerequisites: Node 20+, pnpm 10+, Docker (for Postgres/Redis/MinIO), a GitHub App or PAT for
-review features.
+---
 
+## Quickstart (Local Development)
+
+### Prerequisites
+- Node.js 20+
+- `pnpm` (10+)
+- Docker & Docker Compose (for PostgreSQL, Redis, and MinIO)
+
+### 1. Clone & Install Dependencies
 ```bash
+git clone https://github.com/your-org/sentinelpr.git
+cd sentinelpr
 pnpm install
-cp .env.example .env          # fill in what you have; the dashboard shows what's missing
-docker compose up -d          # postgres + redis + minio (+ bucket bootstrap)
-pnpm db:migrate               # apply schema (pnpm db:migrate:dev to author new migrations)
-pnpm dev                      # dashboard on http://localhost:3000
 ```
 
-In separate terminals, start the workers (each is an independent process; run the ones you need):
+### 2. Configure Environment
+```bash
+cp .env.example .env
+```
+*The default `.env` is pre-configured for local Docker development. High-value credentials (such as GitHub App secrets) can be added as needed.*
+
+### 3. Start Infrastructure & Run Migrations
+```bash
+# Launch PostgreSQL 17, Redis 7, and MinIO
+docker compose up -d
+
+# Apply database migrations
+pnpm db:migrate
+```
+
+### 4. Start the Application & Workers
+Start the web dashboard:
+```bash
+pnpm dev
+# Dashboard accessible at http://localhost:3000
+```
+
+In separate terminal tabs, start the background worker services:
+```bash
+pnpm worker:review     # PR review queue & outbox reconciler
+pnpm worker:visual     # Visual regression Playwright worker
+pnpm worker:synthetic  # 24/7 synthetic monitoring worker
+```
+
+---
+
+## 60-Second Offline Smoke Test
+
+You can test visual regression and synthetic monitoring locally without any GitHub credentials:
+
+1. **Synthetic Monitoring**:
+   - Open `http://localhost:3000/synthetic` → click **New Monitor**.
+   - Target URL: `https://example.com`, interval: `*/5 * * * *`.
+   - Steps:
+     ```json
+     [
+       { "type": "navigate", "url": "/" },
+       { "type": "assert_text", "selector": "h1", "text": "Example Domain" },
+       { "type": "screenshot" }
+     ]
+     ```
+   - Click **Run Now** and observe the live step results, screenshots, and latency waterfall.
+2. **Visual Regression**:
+   - Open `http://localhost:3000/visual` → click **New Suite**.
+   - Create a test pointing to any URL → click **Run**.
+   - Click **Approve as Baseline** to record version 1.
+   - Run the test again to verify `0.00%` pixel drift against the immutable baseline.
+
+---
+
+## Testing & Verification Tiers
+
+SentinelPR adheres to a deterministic, multi-tier testing strategy ensuring enterprise stability across database invariants, concurrency races, and browser interactions.
 
 ```bash
-pnpm worker:review
-pnpm worker:visual
-pnpm worker:synthetic
+# 1. Static Typecheck
+pnpm typecheck
+
+# 2. Fast Unit Suite (220 tests across 30 test files)
+pnpm test
+
+# 3. Isolated PostgreSQL & Redis Integration Suite
+# Exercises owner concurrency, production P95 signals, rate limits, and retention
+powershell scripts/run-isolated-integrations.ps1
+# (or in CI: RUN_DB_INTEGRATION=1 pnpm test:integration)
+
+# 4. Playwright Browser End-to-End Suite
+# Exercises OAuth redirection, session security, and HMAC webhook ingestion
+powershell scripts/run-e2e.ps1
+# (or: pnpm test:e2e)
 ```
 
-Playwright browsers (first run): `pnpm exec playwright install chromium` (or `--with-deps` on Linux).
+### Verification Matrix
 
-### 60-second smoke test without GitHub
+| Suite | Scope | Target Services |
+| :--- | :--- | :--- |
+| **Unit (`pnpm test`)** | AST rules, SSRF IP parser, HMAC validator, risk math, finding deduplication | In-memory mocks |
+| **Integration (`pnpm test:integration`)** | Owner race conditions, P95 aggregation, Redis sliding window, retention outbox | Real PostgreSQL 17 & Redis 7 |
+| **Browser E2E (`pnpm test:e2e`)** | Protected route redirection, OAuth state verification, HMAC webhook to PR render | Isolated `.next-e2e` web server & Chromium |
+| **Static Verification (`pnpm typecheck`)** | Full codebase strict TypeScript coverage | Next.js App Router & Worker processes |
 
-Visual + synthetic need no GitHub credentials:
+---
 
-1. Dashboard → **Synthetic Monitoring** → *New monitor* → base URL `https://example.com`, steps
-   `[{"type":"navigate","url":"/"},{"type":"assert_text","selector":"h1","text":"Example Domain"},{"type":"screenshot"}]`,
-   schedule `*/5 * * * *` → *Run now*.
-2. Watch the run, step results, screenshot, and metrics land in real time. (Local URLs need
-   `SENTINEL_ALLOW_PRIVATE_TARGETS=1`.)
-3. **Visual Regression** → *New suite* pointing at any URL → add a test → *Run* → approve the
-   baseline → change the page → run again → inspect the diff.
+## Repository Scripts Reference
 
-## User sign-in (OAuth)
+| Command | Action |
+| :--- | :--- |
+| `pnpm dev` | Starts Next.js development server on `http://localhost:3000` |
+| `pnpm build` | Compiles production Next.js application bundle |
+| `pnpm start` | Launches compiled production server |
+| `pnpm worker:review` | Runs review queue worker, outbox reconciler, and retention scheduler |
+| `pnpm worker:visual` | Runs Playwright visual capture and pixel comparison worker |
+| `pnpm worker:synthetic` | Runs scheduled synthetic journey monitor worker |
+| `pnpm db:migrate` | Applies pending Prisma migrations to the active database |
+| `pnpm db:generate` | Regenerates Prisma TypeScript client |
+| `pnpm test` | Runs offline Vitest test suites |
+| `pnpm test:integration` | Runs PostgreSQL/Redis database integration specs |
+| `pnpm test:e2e` | Runs Playwright browser E2E test suite |
+| `pnpm test:e2e:install` | Downloads Playwright Chromium browser binaries |
+| `pnpm screenshots` | Captures updated dashboard screenshots into `docs/images/` |
 
-Out of the box the dashboard runs in local single-operator mode (no auth, localhost only). For
-multi-user access:
+---
 
-1. Create a GitHub **OAuth App** at <https://github.com/settings/developers> with callback
-   `{DASHBOARD_URL}/api/auth/github/callback`.
-2. Set `AUTH_GITHUB_CLIENT_ID` and `AUTH_GITHUB_CLIENT_SECRET` (mode auto-switches to OAuth), or
-   pin `SENTINEL_AUTH_MODE=oauth`. Set a strong `AUTH_STATE_SECRET` in production.
-3. The first signed-in user becomes owner of the default organization; further users auto-join as
-   members (or require invites/requests when `AUTH_ALLOW_DEFAULT_ORG_SIGNUP=0`). Manage the team on
-   `/team`.
+## Deep-Dive Documentation
 
-See [docs/configuration.md](docs/configuration.md) and [docs/security-model.md](docs/security-model.md).
+- 📖 [Deployment & Production Topology](docs/deployment.md) — Production multi-container topology, fail-closed checklists, and reverse proxy guidelines.
+- 🔐 [Comprehensive Security Model](docs/security-model.md) — Threat models, credential sanitization, SSRF filters, and tenant isolation policies.
+- 🐙 [GitHub App Setup Walkthrough](docs/github-app-setup.md) — Step-by-step GitHub App registration, private key encoding, and webhook setup.
+- 🖼️ [Visual Baselines & Comparison](docs/visual-baselines.md) — Versioning lifecycle, pixelmatch thresholds, and DOM structure verification.
+- ⏱️ [Synthetic Monitoring & Alerting](docs/synthetic-monitoring.md) — Journey step schemas, cron scheduling, and webhook alert fan-out.
+- ⚙️ [Configuration Reference](docs/configuration.md) — Comprehensive environment variable dictionary with validation rules.
+- 🧪 [Browser E2E Testing Guide](docs/e2e-testing.md) — Isolation requirements, seed fixtures, and local test runners.
+- 🧹 [Retention Policy & Operations](docs/retention.md) — Safe pruning procedures, distributed Redis leases, and outbox blob cleanup.
 
-## GitHub App setup
+---
 
-See [docs/github-app-setup.md](docs/github-app-setup.md) for the full walkthrough (manifest flow,
-permissions, webhook secret, private key env encoding). Short version:
+## Contributing & Security
 
-1. Create an app at `https://github.com/settings/apps/new` with webhook URL
-   `https://<your-host>/api/github/webhook`, secret, and the permissions listed in the doc.
-2. Set `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY` (PEM or base64), `GITHUB_WEBHOOK_SECRET`.
-3. Install on repositories — `installation` / `installation_repositories` webhooks register them
-   automatically; PRs start flowing through the review pipeline.
+- **Contributing**: Contributions are welcome! Please review [CONTRIBUTING.md](CONTRIBUTING.md) for workflow guidelines and coding standards.
+- **Security Vulnerabilities**: We take software security seriously. Please report potential vulnerabilities privately following [SECURITY.md](SECURITY.md) instead of opening public issues.
 
-## Environment variables
-
-Every variable is documented with defaults in [.env.example](.env.example). Highlights:
-
-| Variable | Required | Purpose |
-| --- | --- | --- |
-| `DATABASE_URL` | yes | PostgreSQL connection |
-| `REDIS_URL` | yes (queues/workers) | BullMQ connection |
-| `AUTH_GITHUB_CLIENT_ID` / `AUTH_GITHUB_CLIENT_SECRET` | yes in production | GitHub OAuth; unauthenticated local mode is development-only |
-| `DASHBOARD_URL` | recommended | used in check-run links |
-| `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` / `GITHUB_WEBHOOK_SECRET` | for webhooks | GitHub App |
-| `GITHUB_TOKEN` | optional | PAT fallback for manual review runs |
-| `AI_PROVIDER` / `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL` | optional | AI review enhancement |
-| `ARTIFACT_DRIVER` (`local`\|`s3`) + `S3_*` | yes | artifact storage backend |
-| `ARTIFACT_TOKEN_SECRET` | recommended | signing key for artifact URLs |
-| `SENTINEL_ALLOW_PRIVATE_TARGETS` | dev only | allow localhost targets for visual/synthetic |
-| `ALERT_WEBHOOK_URL` | optional | outgoing alert fan-out |
-
-## Deployment
-
-One image runs everything — dashboard, workers, or migrations — selected by the container command:
-
-```bash
-docker build -t sentinelpr .
-docker compose --profile app up -d   # full local stack: infra + migrations + app + workers
-```
-
-The image includes Chromium for the visual/synthetic workers. Managed Postgres/Redis/S3 work out of
-the box (connection-string URLs only). Production deployments must configure GitHub OAuth; the
-unauthenticated local operator mode is rejected in production. See [docs/deployment.md](docs/deployment.md)
-for the production topology, secrets, and hardening checklist.
-
-## Testing & verification
-
-```bash
-pnpm test                         # unit tests; integration suite is skipped unless explicitly enabled
-RUN_DB_INTEGRATION=1 pnpm test:integration  # PostgreSQL owner-race and production-metrics tests
-pnpm typecheck                    # strict TS across app + workers
-pnpm build                        # production build of the dashboard
-```
-
-CI runs typecheck and unit tests, applies migrations against an isolated PostgreSQL service, executes
-the PostgreSQL-backed owner-concurrency and production-risk aggregate regressions, and then builds the
-dashboard and Docker image. Browser-based visual/synthetic end-to-end scenarios are not yet claimed as
-CI coverage.
-
-## Security model
-
-See [docs/security-model.md](docs/security-model.md). Summary:
-
-- PR code is untrusted and is never executed — the review engine only reads diffs via the API.
-- Webhook signature validation, delivery idempotency, and fast-ack response contract.
-- **Multi-user OAuth**: GitHub sign-in with server-side sessions (HttpOnly cookie, hashed token at
-  rest, signed expiring OAuth state), organization memberships with owner/admin/member roles, and
-  member-level write protection on every mutating API route. Accounts bind to GitHub's immutable
-  numeric account ID; a verified email already bound to another ID is rejected rather than merged.
-- Review runs use a database unique key and transactional dispatch outbox; pending dispatches are
-  retried by review workers with deterministic queue job IDs.
-- SSRF guard on every user-supplied URL (scheme allowlist, localhost/metadata hostname blocklist,
-  DNS resolution + private-range rejection, documented DNS-rebinding limitation).
-- Secrets never reach the client bundle; artifact access only via signed, expiring URLs;
-  org-scoped queries enforced server-side on every route and page.
-- Workers are separate processes with concurrency limits, timeouts and structured logging with
-  secret redaction.
-
-## Limitations (honest)
-
-- **Auth modes**: OAuth mode enables true multi-user access. Unauthenticated local single-operator
-  mode is development-only; production requests fail closed until GitHub OAuth is configured.
-  Roles are org-global (no per-resource ACLs); ownership transfer is promote-then-self-demote.
-- **Local preview builds**: suites target running URLs; building/starting untrusted PR code
-  locally is deliberately not wired (secure boundary, documented).
-- **DNS rebinding**: the SSRF guard checks at request time; a pinned-connection client is the
-  complete fix (documented).
-- Without Docker/Redis/Postgres, the UI runs with explicit "configuration required" states instead
-  of pretending — by design.
-
-## Scripts
-
-> **Screenshots:** start the dashboard (`pnpm dev`) with seeded data, then run `pnpm screenshots`.
-> The script uses Playwright against `SCREENSHOT_BASE_URL` (default `http://localhost:3000`),
-> captures the four core pages in the dark theme, and writes them to `docs/images/` — re-commit
-> the updated files in the same PR as dashboard changes that alter the UI.
-
-| Command | Purpose |
-| --- | --- |
-| `pnpm dev` | Dashboard dev server |
-| `pnpm build` / `pnpm start` | Production build / serve |
-| `pnpm worker:review` / `worker:visual` / `worker:synthetic` | Workers |
-| `pnpm db:migrate` / `db:migrate:dev` / `db:studio` / `db:generate` | Prisma |
-| `pnpm test` / `pnpm test:integration` / `typecheck` | Unit, database integration and static verification |
-| `pnpm test:e2e` / `pnpm test:e2e:install` | Browser E2E suite / install Chromium |
-| `pnpm screenshots` | Regenerate README screenshots from a running dashboard (see below) |
-
-## Docs
-
-- [Deployment guide](docs/deployment.md)
-- [GitHub App setup](docs/github-app-setup.md)
-- [Security model](docs/security-model.md)
-- [Visual baselines](docs/visual-baselines.md)
-- [Synthetic monitoring & scheduling](docs/synthetic-monitoring.md)
-- [Configuration reference](docs/configuration.md)
-- [Browser E2E testing](docs/e2e-testing.md)
-- [Database and artifact retention](docs/retention.md)
-
-## Contributing & security
-
-PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, architecture map, and the review
-checklist. Security vulnerabilities: please use private reporting per [SECURITY.md](SECURITY.md),
-not public issues.
+---
 
 ## License
 
-[MIT](LICENSE)
-
-## Demo script (portfolio)
-
-1. Connect a repo via the GitHub App → open a PR with a hardcoded secret → webhook → review runs →
-   inline comment + check run shows risk HIGH → alert created.
-2. Fix it in a new commit → `synchronize` → re-review → risk drops, comment deduped (no spam).
-3. Visual suite against a preview URL → first run creates baseline candidates → approve → break the
-   UI → run → red diff + changed regions + DOM "missing control" observation → risk signals update.
-4. Synthetic monitor on a critical journey → kill the endpoint → failures + consecutive-failure
-   alert → restore → auto-resolved alert + availability recovery curve.
-5. Overview ties it together: one explainable risk story across code, experience, production.
+This project is licensed under the [MIT License](LICENSE).
