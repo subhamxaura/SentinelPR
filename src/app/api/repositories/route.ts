@@ -51,7 +51,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = parseBody(addRepoSchema, await req.json());
-    const org = await requireOrganization();
+    const org = await requireOrganization(req);
     requireMutationRole(org, req.method);
 
     if (!env.github.pat) {

@@ -26,9 +26,10 @@ without a container boundary is deliberately NOT implemented — see Limitations
 - Deliveries are deduplicated by the `X-GitHub-Delivery` id (unique index); duplicate deliveries
   are acknowledged without side effects. A delivery that failed processing is re-claimed and
   reprocessed when GitHub redelivers the same id.
-- The endpoint validates and records, then enqueues and responds 202 — no analysis on the request
-  path. Missing delivery ids and non-object payloads are rejected 400; processing errors are
-  recorded per delivery for debugging, and GitHub's retry policy covers transient failures.
+- The endpoint validates and records, then commits the review run and a dispatch-outbox row before
+  responding 202 — no analysis on the request path. A worker reconciles pending/expired outbox
+  leases, and deterministic queue job IDs make add-before-mark retries safe. Missing delivery ids
+  and non-object payloads are rejected 400; failed deliveries can be reclaimed on redelivery.
 
 ## Secrets handling
 
@@ -49,7 +50,8 @@ without a container boundary is deliberately NOT implemented — see Limitations
 Two deployment modes exist, resolved by `src/lib/auth/mode.ts`:
 
 - **local** — legacy single trusted operator. `SENTINEL_ORG_SLUG` is bootstrapped on first use and
-  every request acts on it. Suitable for localhost development only.
+  every request acts on it. Development only; production rejects local mode and fails closed unless
+  GitHub OAuth credentials are configured.
 - **oauth** — GitHub OAuth sign-in with database-backed sessions. Selected explicitly with
   `SENTINEL_AUTH_MODE=oauth` or auto-selected when `AUTH_GITHUB_CLIENT_ID`/`SECRET` are set.
 
@@ -64,8 +66,9 @@ OAuth mode guarantees:
   same-origin relative paths.
 - Sessions live in the `Session` table with a 7-day sliding expiry, hashed IP metadata, and
   user-agent capture. Sign-out deletes the row and the cookie.
-- GitHub identity is matched by **primary verified email** (via `/user/emails`), with the unique
-  GitHub login as a secondary key if the email changes on GitHub's side.
+- Accounts are keyed by GitHub's immutable numeric user ID. A verified email can bind an unlinked
+  legacy account once; an email already bound to a different GitHub ID is rejected, and mutable
+  GitHub usernames are never used to merge accounts.
 
 ## Authorization (RBAC)
 
@@ -73,8 +76,9 @@ OAuth mode guarantees:
   `requirePageOrganization`) and scopes every query by `organizationId`. Client-supplied
   org/repository/test IDs are always re-validated against that scope before use — a forged ID for
   another org is a 404, not a leak.
-- **Roles:** `owner` > `admin` > `member` on `OrganizationMember`. Members may read everything in
-  their org but cannot mutate configuration (create/update/delete suites, monitors, repositories,
+- **Roles:** `owner` > `admin` > `member` on `OrganizationMember`. Owner-sensitive changes lock the
+  organization row, revalidate the acting membership, and commit the role change plus audit event in
+  a serializable transaction. Members may read everything in their org but cannot mutate configuration (create/update/delete suites, monitors, repositories,
   baselines, or trigger runs). The check is centralized in `requireMutationRole` and enforced by
   every API route. In local mode the check is a no-op (single trusted operator).
 - **Access provisioning:** users get memberships from pre-created rows, pending
@@ -144,21 +148,28 @@ ownership. Webhook delivery ledgers are strictly scoped to repositories owned by
 
 Residual boundaries to know about:
 
-- OAuth accounts are keyed by verified email, with the mutable GitHub login as the email-change
-  fallback. The schema does not store GitHub's immutable numeric user id, so a recycled GitHub
-  username could match an old local row if the verified email also differs. Add a `githubId`
-  column/migration if your threat model requires stronger identity binding.
-- In **local** mode there is no authentication at all — keep localhost-only, or put your own auth
-  (reverse-proxy SSO, mTLS) in front.
+- In **local development** mode there is no authentication. Production rejects this configuration;
+  keep local development bound to loopback and never expose it through a tunnel or reverse proxy.
 - Roles are organization-global; per-resource ACLs (e.g. a member limited to one suite) are not
   implemented.
 - Team management lives on the `/team` page (admin/owner only). **Invites:** admins may invite
   `member` and `admin`; only owners may assign `owner`; invites are consumed at sign-in **and**
   lazily on any subsequent authenticated request. **Role editing** (`PATCH /api/members/:id`) and
-  **removal** (`DELETE`) enforce owner protection: owners are immutable to everyone — to hand over
-  ownership, promote a member to owner and self-demote; the last owner can never be demoted or
-  removed, even by themselves. Members may self-demote (give up admin). Every change is
-  audit-logged with the actor, before and after roles.
+  **removal** (`DELETE`) enforce owner protection: another member cannot demote or remove an owner;
+  to hand over ownership, promote a member to owner and self-demote. The last owner cannot demote or remove
+  themselves. Members may self-demote (give up admin). Every change is audit-logged with the actor,
+  before and after roles.
+- **Application API limits:** authenticated requests are limited per user; anonymous requests use a
+  conservative bucket unless the trusted proxy chain is explicitly configured. Redis-backed sliding
+  windows are shared across production replicas; route-specific quotas protect OAuth, installations,
+  manual review, visual/synthetic runs, access requests, and signed artifact downloads. Rejections use
+  HTTP 429 with `Retry-After`. Gateway controls remain useful defense in depth.
+- **Retention:** pruning is disabled unless `RETENTION_ENABLED=1`, with a non-mutating dry-run mode.
+  Only aged terminal records and expired sessions are selected; queued/running work and every
+  baseline/snapshot/step-referenced artifact are protected. Artifact metadata and a durable deletion
+  intent commit atomically, then object removal retries with backoff. Audit logs are preserved
+  indefinitely unless `RETENTION_AUDIT_LOG_DAYS` is explicitly set positive. See [retention.md](retention.md)
+  and the validated settings in [configuration.md](configuration.md#database-and-artifact-retention).
 
 ## Prompt-injection stance
 

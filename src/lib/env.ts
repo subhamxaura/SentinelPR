@@ -9,6 +9,28 @@ function str(name: string): string | undefined {
   return v && v.trim() !== "" ? v.trim() : undefined;
 }
 
+function positiveInt(name: string, fallback: number, max = 1_000_000): number {
+  const raw = str(name);
+  if (!raw) return fallback;
+  if (!/^\d+$/.test(raw)) throw new Error(`${name} must be a positive integer no greater than ${max}.`);
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 1 || value > max) {
+    throw new Error(`${name} must be a positive integer no greater than ${max}.`);
+  }
+  return value;
+}
+
+function nonNegativeInt(name: string, fallback: number, max = 36_500): number {
+  const raw = str(name);
+  if (!raw) return fallback;
+  if (!/^\d+$/.test(raw)) throw new Error(`${name} must be a non-negative integer no greater than ${max}.`);
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 0 || value > max) {
+    throw new Error(`${name} must be a non-negative integer no greater than ${max}.`);
+  }
+  return value;
+}
+
 export const env = {
   get databaseUrl(): string {
     return str("DATABASE_URL") ?? "";
@@ -165,6 +187,54 @@ export const env = {
       return !!this.githubClientId && !!this.githubClientSecret;
     },
   },
+  rateLimit: {
+    /** HMAC key for opaque distributed limiter keys; auth-state secret is a domain-separated fallback. */
+    get keySecret(): string {
+      const configured = str("RATE_LIMIT_SECRET") ?? str("AUTH_STATE_SECRET") ?? str("AUTH_SECRET");
+      if (configured) return configured;
+      if (str("NODE_ENV") === "production") {
+        throw new Error("RATE_LIMIT_SECRET or AUTH_STATE_SECRET is required in production.");
+      }
+      return "sentinelpr-local-rate-limit-key";
+    },
+    /** Number of rightmost X-Forwarded-For hops controlled by trusted proxies. */
+    get trustedProxyHops(): number {
+      const raw = str("RATE_LIMIT_TRUSTED_PROXY_HOPS");
+      if (!raw) return 0;
+      const value = Number(raw);
+      if (!Number.isSafeInteger(value) || value < 0 || value > 10) {
+        throw new Error("RATE_LIMIT_TRUSTED_PROXY_HOPS must be an integer from 0 to 10.");
+      }
+      return value;
+    },
+    get standardWindowSeconds(): number { return positiveInt("RATE_LIMIT_WINDOW_SECONDS", 60, 86_400); },
+    get expensiveWindowSeconds(): number { return positiveInt("RATE_LIMIT_EXPENSIVE_WINDOW_SECONDS", 600, 86_400); },
+    get readPerMinute(): number { return positiveInt("RATE_LIMIT_READ_PER_MINUTE", 120); },
+    get writePerMinute(): number { return positiveInt("RATE_LIMIT_WRITE_PER_MINUTE", 60); },
+    get anonymousPerMinute(): number { return positiveInt("RATE_LIMIT_ANONYMOUS_PER_MINUTE", 60); },
+    get oauthPerWindow(): number { return positiveInt("RATE_LIMIT_OAUTH_PER_WINDOW", 20); },
+    get manualReviewPerWindow(): number { return positiveInt("RATE_LIMIT_MANUAL_REVIEW_PER_WINDOW", 5); },
+    get visualRunPerWindow(): number { return positiveInt("RATE_LIMIT_VISUAL_RUN_PER_WINDOW", 5); },
+    get syntheticRunPerWindow(): number { return positiveInt("RATE_LIMIT_SYNTHETIC_RUN_PER_WINDOW", 10); },
+    get installationPerWindow(): number { return positiveInt("RATE_LIMIT_INSTALLATION_PER_WINDOW", 10); },
+    get accessRequestPerWindow(): number { return positiveInt("RATE_LIMIT_ACCESS_REQUEST_PER_WINDOW", 3); },
+    get artifactDownloadPerMinute(): number { return positiveInt("RATE_LIMIT_ARTIFACT_DOWNLOAD_PER_MINUTE", 60); },
+  },
+  retention: {
+    get enabled(): boolean { return str("RETENTION_ENABLED") === "1"; },
+    get dryRun(): boolean { return str("RETENTION_DRY_RUN") === "1"; },
+    get intervalHours(): number { return positiveInt("RETENTION_INTERVAL_HOURS", 24, 168); },
+    get batchSize(): number { return positiveInt("RETENTION_BATCH_SIZE", 100, 500); },
+    get reviewRunDays(): number { return positiveInt("RETENTION_REVIEW_RUN_DAYS", 180, 36_500); },
+    get visualRunDays(): number { return positiveInt("RETENTION_VISUAL_RUN_DAYS", 90, 36_500); },
+    get syntheticRunDays(): number { return positiveInt("RETENTION_SYNTHETIC_RUN_DAYS", 90, 36_500); },
+    get jobRecordDays(): number { return positiveInt("RETENTION_JOB_RECORD_DAYS", 30, 36_500); },
+    get webhookDeliveryDays(): number { return positiveInt("RETENTION_WEBHOOK_DELIVERY_DAYS", 90, 36_500); },
+    get artifactDays(): number { return positiveInt("RETENTION_ARTIFACT_DAYS", 90, 36_500); },
+    get reviewOutboxDays(): number { return positiveInt("RETENTION_REVIEW_OUTBOX_DAYS", 30, 36_500); },
+    /** 0 preserves audit history indefinitely. */
+    get auditLogDays(): number { return nonNegativeInt("RETENTION_AUDIT_LOG_DAYS", 0); },
+  },
 };
 
 export interface IntegrationStatus {
@@ -181,18 +251,29 @@ export function integrationStatuses(): IntegrationStatus[] {
   const appParts = [gh.appId, gh.privateKey, gh.webhookSecret];
   const s3 = env.storage.s3;
   const auth = env.auth;
+  const production = process.env.NODE_ENV === "production";
+  const authConfigured = auth.oauthReady && auth.configuredMode !== "local";
+  const authMissing = [
+    !auth.githubClientId && "AUTH_GITHUB_CLIENT_ID",
+    !auth.githubClientSecret && "AUTH_GITHUB_CLIENT_SECRET",
+    auth.configuredMode === "local" && "SENTINEL_AUTH_MODE must not be local in production",
+  ].filter(Boolean) as string[];
   return [
     {
       id: "auth",
       label: "Authentication",
-      configured: auth.configuredMode === "oauth" ? auth.oauthReady : true,
+      configured: production ? authConfigured : auth.configuredMode === "oauth" ? auth.oauthReady : true,
       required: true,
       detail:
-        auth.configuredMode === "oauth"
+        production
+          ? authConfigured
+            ? "GitHub OAuth multi-user sign-in with database-backed sessions."
+            : "Production startup fails closed until GitHub OAuth credentials are configured and local mode is disabled."
+          : auth.configuredMode === "oauth"
           ? "GitHub OAuth multi-user sign-in with database-backed sessions."
-          : "Local single-operator mode — set AUTH_GITHUB_CLIENT_ID/SECRET (and SENTINEL_AUTH_MODE=oauth) for multi-user access.",
+          : "Unauthenticated local single-operator mode (development only). Configure GitHub OAuth before production deployment.",
       missing:
-        auth.configuredMode === "oauth" && !auth.oauthReady
+        production ? authConfigured ? [] : authMissing : auth.configuredMode === "oauth" && !auth.oauthReady
           ? [!auth.githubClientId && "AUTH_GITHUB_CLIENT_ID", !auth.githubClientSecret && "AUTH_GITHUB_CLIENT_SECRET"].filter(Boolean) as string[]
           : [],
     },

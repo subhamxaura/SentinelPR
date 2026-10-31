@@ -5,12 +5,13 @@ import { prisma } from "@/lib/db";
 import { apiError } from "@/lib/web/api";
 import { actorFor, recordAudit, requireMutationRole, requireOrganization } from "@/lib/web/session";
 import { enqueueSyntheticRun } from "@/lib/queue";
+import { rateLimitPolicies } from "@/lib/web/rate-limit";
 
 /** Manual "Run now": create a queued run row and enqueue it. */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const org = await requireOrganization();
+    const org = await requireOrganization(req, [rateLimitPolicies.syntheticRun]);
     requireMutationRole(org, req.method);
 
     const test = await prisma.syntheticTest.findFirst({

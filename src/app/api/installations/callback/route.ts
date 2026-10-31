@@ -12,6 +12,7 @@ import {
   INSTALLATION_STATE_COOKIE,
 } from "@/lib/github/installation-state";
 import { logger } from "@/lib/logger";
+import { rateLimitPolicies } from "@/lib/web/rate-limit";
 
 const log = logger.child({ module: "installations/callback" });
 
@@ -44,7 +45,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const ctx = await requireOrganization();
+    const ctx = await requireOrganization(req, [rateLimitPolicies.installationFlow]);
     requireMutationRole(ctx, "POST");
     if (ctx.role === "member") {
       throw err.authz("Only administrators can complete GitHub App installations.");

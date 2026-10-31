@@ -28,7 +28,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   try {
     const { id } = await params;
     const body = parseBody(createTestSchema, await req.json());
-    const org = await requireOrganization();
+    const org = await requireOrganization(req);
     requireMutationRole(org, req.method);
 
     const suite = await prisma.visualSuite.findFirst({ where: { id, organizationId: org.id }, select: { id: true } });

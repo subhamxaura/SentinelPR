@@ -11,7 +11,7 @@ import { upsertSyntheticSchedule } from "@/lib/queue";
 
 export async function GET(req: Request) {
   try {
-    const org = await requireOrganization();
+    const org = await requireOrganization(req);
     const tests = await prisma.syntheticTest.findMany({
       where: { organizationId: org.id },
       orderBy: { createdAt: "desc" },
@@ -43,7 +43,7 @@ const createSchema = z.object({
 export async function POST(req: Request) {
   try {
     const body = parseBody(createSchema, await req.json());
-    const org = await requireOrganization();
+    const org = await requireOrganization(req);
     requireMutationRole(org, req.method);
 
     await validatePublicUrl(body.baseUrl); // SSRF guard

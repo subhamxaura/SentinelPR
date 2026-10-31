@@ -14,8 +14,8 @@ export const dynamic = "force-dynamic";
 const ROLE = z.enum(["owner", "admin", "member"]);
 
 /** Admin/owner only — this endpoint exposes the org's member roster. */
-async function requireAdminContext() {
-  const ctx = await requireOrganization();
+async function requireAdminContext(req: Request) {
+  const ctx = await requireOrganization(req);
   if (!isAtLeast(ctx.role, "admin")) {
     throw err.authz("Only admins can manage the team.");
   }
@@ -25,7 +25,7 @@ async function requireAdminContext() {
 /** GET /api/invites — members and pending invites for the org. */
 export async function GET(req: Request) {
   try {
-    const ctx = await requireAdminContext();
+    const ctx = await requireAdminContext(req);
     const members = await prisma.organizationMember.findMany({
       where: { organizationId: ctx.id },
       orderBy: { createdAt: "asc" },
@@ -60,7 +60,7 @@ const createInviteSchema = z.object({
 /** POST /api/invites { email, role } — create a pending invite. */
 export async function POST(req: Request) {
   try {
-    const ctx = await requireAdminContext();
+    const ctx = await requireAdminContext(req);
     const body = parseBody(createInviteSchema, await req.json());
 
     if (!canAssignRole(ctx.role, body.role)) {
@@ -99,7 +99,7 @@ export async function POST(req: Request) {
 /** DELETE /api/invites?id=… — revoke a pending invite. */
 export async function DELETE(req: Request) {
   try {
-    const ctx = await requireAdminContext();
+    const ctx = await requireAdminContext(req);
     const id = new URL(req.url).searchParams.get("id");
     if (!id) {
       return NextResponse.json({ error: { code: "VALIDATION_ERROR", message: "id query param required", category: "config" } }, { status: 400 });

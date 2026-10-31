@@ -3,6 +3,7 @@ node_modules/
 out/
 src/generated/
 .data/
+.next-e2e/
 *.tsbuildinfo
 next-env.d.ts
 
@@ -20,6 +21,10 @@ coverage/
 .DS_Store
 Thumbs.db
 build.log
+AGENTS.md
+
 
 # workspace metadata
 .freebuff/
+.work/
+

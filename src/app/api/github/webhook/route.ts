@@ -4,8 +4,9 @@ import { env } from "@/lib/env";
 import { toAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { parseWebhookEvent, shouldReviewPullRequest, verifyWebhookSignature } from "@/lib/github/webhook";
-import { enqueueReviewRun } from "@/lib/queue";
 import { registerRepository } from "@/lib/repositories/registration";
+import { ensureReviewRun } from "@/lib/review/runs";
+import { dispatchReviewRunOutbox } from "@/lib/review/outbox";
 
 const log = logger.child({ module: "github-webhook" });
 
@@ -234,32 +235,14 @@ async function handlePullRequest(parsed: ReturnType<typeof parseWebhookEvent>) {
     },
   });
 
-  // One review per head SHA: redeliveries/synchronize races dedupe here.
-  const existing = await prisma.reviewRun.findFirst({
-    where: { pullRequestId: pullRequestRow.id, headSha: pr.headSha, status: { in: ["queued", "running", "success", "failure"] } },
-    select: { id: true },
+  const ensured = await ensureReviewRun({
+    pullRequestId: pullRequestRow.id,
+    repositoryId: repository.id,
+    headSha: pr.headSha,
+    trigger: "webhook",
   });
-  if (existing) return;
-
-  const run = await prisma.reviewRun.create({
-    data: {
-      pullRequestId: pullRequestRow.id,
-      repositoryId: repository.id,
-      headSha: pr.headSha,
-      trigger: "webhook",
-      status: "queued",
-    },
-  });
-  try {
-    await enqueueReviewRun(run.id);
-  } catch (e) {
-    const appErr = toAppError(e);
-    await prisma.reviewRun.update({
-      where: { id: run.id },
-      data: { status: "error", error: JSON.stringify(appErr.toJSON()), completedAt: new Date() },
-    });
-    throw appErr;
-  }
+  if (!ensured.shouldEnqueue) return;
+  await dispatchReviewRunOutbox(ensured.run.id);
 }
 
 

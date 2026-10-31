@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { apiError, parseBody } from "@/lib/web/api";
 import { actorFor, recordAudit, requireMutationRole, requireOrganization } from "@/lib/web/session";
 import { enqueueVisualRun } from "@/lib/queue";
+import { rateLimitPolicies } from "@/lib/web/rate-limit";
 
 const createRunSchema = z.object({
   suiteId: z.string().cuid(),
@@ -18,7 +19,7 @@ const createRunSchema = z.object({
 export async function POST(req: Request) {
   try {
     const body = parseBody(createRunSchema, await req.json());
-    const org = await requireOrganization();
+    const org = await requireOrganization(req, [rateLimitPolicies.visualRun]);
     requireMutationRole(org, req.method);
 
     const suite = await prisma.visualSuite.findFirst({ where: { id: body.suiteId, organizationId: org.id } });

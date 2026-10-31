@@ -29,7 +29,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   try {
     const { id } = await params;
     const body = parseBody(updateSchema, await req.json());
-    const org = await requireOrganization();
+    const org = await requireOrganization(req);
     requireMutationRole(org, req.method);
 
     const test = await prisma.visualTest.findFirst({ where: { id, suite: { organizationId: org.id } } });
@@ -46,7 +46,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const org = await requireOrganization();
+    const org = await requireOrganization(req);
     requireMutationRole(org, req.method);
     const test = await prisma.visualTest.findFirst({ where: { id, suite: { organizationId: org.id } }, select: { id: true } });
     if (!test) {

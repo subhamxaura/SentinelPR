@@ -62,6 +62,11 @@ From the run history (newest first):
   samples — mixing them hides outages)
 - consecutive failures (streak from the newest run)
 
+PR production-risk enrichment computes each enabled monitor's P95 from successful runs in the
+preceding seven days using PostgreSQL's `percentile_cont`, and compares it with that monitor's own
+`alertLatencyMs` threshold. It reports a breach only after at least five successful samples; smaller
+samples are treated as insufficient evidence, not as a healthy latency result.
+
 Alerts (in-app always; outgoing webhook when `ALERT_WEBHOOK_URL` is set):
 
 | Alert | Condition | Dedup |

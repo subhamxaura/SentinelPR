@@ -8,7 +8,7 @@ import { requireOrganization } from "@/lib/web/session";
 /** Global search for the command palette: repos, PRs, synthetic tests, visual suites. */
 export async function GET(req: Request) {
   try {
-    const org = await requireOrganization();
+    const org = await requireOrganization(req);
     const q = new URL(req.url).searchParams.get("q")?.trim() ?? "";
     if (q.length < 2) {
       return NextResponse.json({ results: [] });

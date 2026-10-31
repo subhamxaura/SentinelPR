@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: sentinel
       POSTGRES_DB: sentinelpr
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -20,7 +20,7 @@ services:
     image: redis:7-alpine
     container_name: sentinelpr-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis-data:/data
@@ -38,8 +38,8 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     volumes:
       - minio-data:/data
     healthcheck:
@@ -86,6 +86,8 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
+      NODE_ENV: development
+      SENTINEL_AUTH_MODE: local
       DATABASE_URL: postgresql://sentinel:sentinel@postgres:5432/sentinelpr?schema=public
       REDIS_URL: redis://redis:6379
       DASHBOARD_URL: http://localhost:3000
@@ -95,7 +97,8 @@ services:
       - path: .env
         required: false
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
+    command: ["pnpm", "dev", "--hostname", "0.0.0.0"]
     volumes:
       - app-artifacts:/app/.data/artifacts
     restart: unless-stopped

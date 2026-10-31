@@ -12,7 +12,12 @@ export function apiError(e: unknown): NextResponse {
   if (appErr.status >= 500) {
     log.error("API error", { error: appErr.toJSON() });
   }
-  return NextResponse.json({ error: appErr.toJSON() }, { status: appErr.status });
+  const headers = new Headers();
+  if (appErr.code === "API_RATE_LIMIT_EXCEEDED" && appErr.details && typeof appErr.details === "object") {
+    const retryAfter = Number((appErr.details as { retryAfterSeconds?: unknown }).retryAfterSeconds);
+    if (Number.isSafeInteger(retryAfter) && retryAfter > 0) headers.set("Retry-After", String(retryAfter));
+  }
+  return NextResponse.json({ error: appErr.toJSON() }, { status: appErr.status, headers });
 }
 
 /** Resolves the acting org, enforces member-write rules, then runs the handler. */
@@ -20,7 +25,7 @@ export async function withOrg<T>(
   req: Request,
   fn: (orgId: string, ctx: OrgContext) => Promise<T>,
 ): Promise<T> {
-  const ctx = await requireOrganization();
+  const ctx = await requireOrganization(req);
   requireMutationRole(ctx, req.method);
   return fn(ctx.id, ctx);
 }

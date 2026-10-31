@@ -3,12 +3,19 @@ import { authMode } from "@/lib/auth/mode";
 import { buildAuthorizeUrl } from "@/lib/auth/github-oauth";
 import { createSignedState, sanitizeRedirect } from "@/lib/auth/crypto";
 import { setOAuthStateCookie } from "@/lib/auth/oauth-cookie";
+import { apiError } from "@/lib/web/api";
+import { enforcePublicApiRateLimit, rateLimitPolicies } from "@/lib/web/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** GET /api/auth/github?redirectTo=/visual — begins the GitHub OAuth flow. */
 export async function GET(req: Request) {
+  try {
+    await enforcePublicApiRateLimit(req, rateLimitPolicies.oauthStart);
+  } catch (e) {
+    return apiError(e);
+  }
   if (authMode() !== "oauth") {
     return NextResponse.json(
       {
