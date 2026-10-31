@@ -19,6 +19,7 @@ export function startWorker(opts: {
   concurrency: number;
   processor: Processor;
   metricsPort?: number;
+  onShutdown?: () => Promise<void> | void;
 }) {
   const worker = new Worker(opts.queueName, opts.processor, {
     connection: getQueueConnection(),
@@ -87,6 +88,7 @@ export function startWorker(opts: {
 
   const shutdown = async () => {
     log.info("Worker shutting down", { worker: opts.workerName });
+    await Promise.resolve(opts.onShutdown?.()).catch(() => undefined);
     await metrics.close().catch(() => undefined);
     await worker.close().catch(() => undefined);
     await prisma.$disconnect().catch(() => undefined);

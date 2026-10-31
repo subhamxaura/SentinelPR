@@ -27,6 +27,7 @@ export interface RiskInput {
     consecutiveFailures: number;
     p95Ms: number | null;
     latencyThresholdMs: number | null;
+    latencyBreaches?: Array<{ testName: string; p95Ms: number; thresholdMs: number; sampleCount: number }>;
   } | null;
 }
 
@@ -172,7 +173,14 @@ export function computeRisk(input: RiskInput): RiskAssessment {
     }
     if (synth.consecutiveFailures >= 3) productionLevel = maxRisk(productionLevel, "high");
     else if (synth.consecutiveFailures > 0) productionLevel = maxRisk(productionLevel, "medium");
-    if (
+    if (synth.latencyBreaches?.length) {
+      for (const breach of synth.latencyBreaches) {
+        productionReasons.push(
+          `${breach.testName} P95 latency ${Math.round(breach.p95Ms)}ms exceeds its ${breach.thresholdMs}ms threshold (${breach.sampleCount} successful samples)`,
+        );
+      }
+      productionLevel = maxRisk(productionLevel, "medium");
+    } else if (
       synth.p95Ms !== null &&
       synth.latencyThresholdMs !== null &&
       synth.p95Ms > synth.latencyThresholdMs

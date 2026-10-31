@@ -3,6 +3,7 @@ import { verifyArtifactToken } from "@/lib/env";
 import { getStorage } from "@/lib/storage";
 import { toAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
+import { enforceRateLimit, rateLimitPolicies } from "@/lib/web/rate-limit";
 
 const log = logger.child({ module: "api/artifacts" });
 
@@ -21,6 +22,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     if (!verified || verified.artifactId !== id) {
       return new Response("Forbidden", { status: 403 });
     }
+    await enforceRateLimit(req, rateLimitPolicies.artifactDownload, `artifact:${verified.organizationId}:${id}`);
 
     const artifact = await prisma.artifact.findFirst({
       where: { id, organizationId: verified.organizationId },
@@ -46,6 +48,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   } catch (e) {
     const appErr = toAppError(e);
     log.warn("Artifact fetch failed", { error: appErr.toJSON() });
-    return new Response(appErr.message, { status: appErr.status });
+    const headers = new Headers();
+    if (appErr.code === "API_RATE_LIMIT_EXCEEDED" && appErr.details && typeof appErr.details === "object") {
+      const retryAfter = Number((appErr.details as { retryAfterSeconds?: unknown }).retryAfterSeconds);
+      if (Number.isSafeInteger(retryAfter) && retryAfter > 0) headers.set("Retry-After", String(retryAfter));
+    }
+    return new Response(appErr.message, { status: appErr.status, headers });
   }
 }

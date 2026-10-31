@@ -8,7 +8,7 @@ import { requireMutationRole, requireOrganization } from "@/lib/web/session";
 
 export async function GET(req: Request) {
   try {
-    const org = await requireOrganization();
+    const org = await requireOrganization(req);
     const alerts = await prisma.alert.findMany({
       where: { organizationId: org.id },
       orderBy: { createdAt: "desc" },
@@ -25,7 +25,7 @@ const patchSchema = z.object({ status: z.enum(["acknowledged", "resolved"]) });
 export async function PATCH(req: Request) {
   try {
     const body = parseBody(patchSchema, await req.json());
-    const org = await requireOrganization();
+    const org = await requireOrganization(req);
     requireMutationRole(org, req.method);
     const url = new URL(req.url);
     const id = url.searchParams.get("id");

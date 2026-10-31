@@ -12,6 +12,7 @@ import { authMode } from "@/lib/auth/mode";
 import { readSession, type SessionUser } from "@/lib/auth/session-store";
 import { consumePendingInvites, defaultOrganization } from "@/lib/auth/provisioning";
 import type { Role } from "@/lib/web/roles";
+import { enforceAuthenticatedApiRateLimits, enforcePublicApiRateLimit, rateLimitPolicies, type RateLimitPolicy } from "@/lib/web/rate-limit";
 
 export interface OrgContext {
   id: string;
@@ -101,15 +102,34 @@ async function resolveContext(): Promise<OrgContext | null> {
 }
 
 /** Page-context version: throws 401 AppError when unauthenticated in oauth mode. */
-export async function requireOrganization(): Promise<OrgContext> {
+export async function requireOrganization(
+  req?: Request,
+  additionalPolicies: RateLimitPolicy[] = [],
+): Promise<OrgContext> {
   const ctx = await resolveContext();
-  if (!ctx) throw err.unauthorized("Sign in to continue");
+  if (!ctx) {
+    if (req) await enforcePublicApiRateLimit(req, rateLimitPolicies.anonymousApi);
+    throw err.unauthorized("Sign in to continue");
+  }
+  if (req) {
+    const identity = ctx.user ? `user:${ctx.user.id}` : `local-org:${ctx.id}`;
+    await enforceAuthenticatedApiRateLimits(req, identity, additionalPolicies);
+  }
   return ctx;
 }
 
 /** Soft variant for read paths that degrade gracefully. */
-export async function resolveOrganization(): Promise<OrgContext | null> {
-  return resolveContext();
+export async function resolveOrganization(req?: Request): Promise<OrgContext | null> {
+  const ctx = await resolveContext();
+  if (req) {
+    if (ctx) {
+      const identity = ctx.user ? `user:${ctx.user.id}` : `local-org:${ctx.id}`;
+      await enforceAuthenticatedApiRateLimits(req, identity);
+    } else {
+      await enforcePublicApiRateLimit(req, rateLimitPolicies.anonymousApi);
+    }
+  }
+  return ctx;
 }
 
 /**

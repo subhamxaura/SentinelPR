@@ -8,6 +8,7 @@ import { dedupeFindings, normalizeFinding } from "@/lib/review/normalize";
 import { shouldRetryReviewFailure } from "@/lib/review/retry";
 import { getReviewModel } from "@/lib/ai/model";
 import { computeRisk } from "@/lib/risk/engine";
+import { qualifyLatencyBreaches, type LatencyCandidate } from "@/lib/risk/production-metrics";
 import { createCheckRun, fetchPullRequestData, publishReview } from "@/lib/github/client";
 import { raiseAlert } from "@/lib/alerts";
 import { SEVERITY_RANK, RISK_RANK, type Finding, type RiskAssessment, type RiskLevel, type Severity } from "@/lib/types";
@@ -253,44 +254,81 @@ async function visualSignalFor(pullRequestId: string, headSha: string) {
   return { total: snapshots.length, failed, newBaselines };
 }
 
-async function productionSignal(organizationId: string) {
-  const tests = await prisma.syntheticTest.findMany({
-    where: { organizationId, enabled: true },
-    select: { id: true, alertLatencyMs: true },
-  });
-  if (!tests.length) return null;
+export async function productionSignal(organizationId: string) {
+  const enabledTestCount = await prisma.syntheticTest.count({ where: { organizationId, enabled: true } });
+  if (enabledTestCount === 0) return null;
   const since = new Date(Date.now() - 7 * 24 * 3600 * 1000);
-  const runs = await prisma.syntheticRun.findMany({
-    where: { testId: { in: tests.map((t) => t.id) }, createdAt: { gte: since }, status: { in: ["passed", "failed"] } },
-    select: { status: true, testId: true },
-    orderBy: { createdAt: "desc" },
-    take: 2000,
-  });
-  if (!runs.length) return null;
-  const availability = runs.filter((r) => r.status === "passed").length / runs.length;
+  const [availabilityRows, recentFailures, latencyCandidates] = await Promise.all([
+    prisma.$queryRaw<Array<{ total: number; passed: number }>>`
+      SELECT
+        COUNT(*) FILTER (WHERE r."status" IN ('passed', 'failed'))::integer AS "total",
+        COUNT(*) FILTER (WHERE r."status" = 'passed')::integer AS "passed"
+      FROM "SyntheticTest" AS t
+      LEFT JOIN "SyntheticRun" AS r
+        ON r."testId" = t."id"
+        AND r."createdAt" >= ${since}
+        AND r."status" IN ('passed', 'failed')
+      WHERE t."organizationId" = ${organizationId} AND t."enabled" = TRUE
+    `,
+    prisma.$queryRaw<Array<{ testId: string; status: string }>>`
+      WITH ranked AS (
+        SELECT
+          r."testId",
+          r."status",
+          ROW_NUMBER() OVER (PARTITION BY r."testId" ORDER BY r."createdAt" DESC, r."id" DESC) AS position
+        FROM "SyntheticRun" AS r
+        INNER JOIN "SyntheticTest" AS t ON t."id" = r."testId"
+        WHERE t."organizationId" = ${organizationId}
+          AND t."enabled" = TRUE
+          AND r."status" IN ('passed', 'failed')
+      )
+      SELECT "testId", "status" FROM ranked WHERE position <= 10 ORDER BY "testId", position
+    `,
+    prisma.$queryRaw<LatencyCandidate[]>`
+      SELECT
+        t."id" AS "testId",
+        t."name" AS "testName",
+        percentile_cont(0.95) WITHIN GROUP (ORDER BY r."durationMs")::double precision AS "p95Ms",
+        t."alertLatencyMs"::double precision AS "thresholdMs",
+        COUNT(*)::integer AS "sampleCount"
+      FROM "SyntheticRun" AS r
+      INNER JOIN "SyntheticTest" AS t ON t."id" = r."testId"
+      WHERE t."organizationId" = ${organizationId}
+        AND t."enabled" = TRUE
+        AND t."alertLatencyMs" IS NOT NULL
+        AND r."createdAt" >= ${since}
+        AND r."status" = 'passed'
+        AND r."durationMs" IS NOT NULL
+      GROUP BY t."id", t."name", t."alertLatencyMs"
+    `,
+  ]);
 
-  // Worst consecutive-failure streak among currently failing tests.
+  const total = availabilityRows[0]?.total ?? 0;
+  if (total === 0) return null;
+  const availability = (availabilityRows[0]?.passed ?? 0) / total;
+
   let consecutive = 0;
-  for (const test of tests) {
-    const recent = await prisma.syntheticRun.findMany({
-      where: { testId: test.id },
-      orderBy: { createdAt: "desc" },
-      take: 10,
-      select: { status: true },
-    });
-    let streak = 0;
-    for (const r of recent) {
-      if (r.status === "failed") streak++;
-      else break;
+  let currentTestId = "";
+  let currentStreak = 0;
+  let streakOpen = true;
+  for (const run of recentFailures) {
+    if (run.testId !== currentTestId) {
+      consecutive = Math.max(consecutive, currentStreak);
+      currentTestId = run.testId;
+      currentStreak = 0;
+      streakOpen = true;
     }
-    consecutive = Math.max(consecutive, streak);
+    if (streakOpen && run.status === "failed") currentStreak++;
+    else streakOpen = false;
   }
+  consecutive = Math.max(consecutive, currentStreak);
 
   return {
     availability,
     consecutiveFailures: consecutive,
     p95Ms: null as number | null,
-    latencyThresholdMs: tests.find((t) => t.alertLatencyMs)?.alertLatencyMs ?? null,
+    latencyThresholdMs: null as number | null,
+    latencyBreaches: qualifyLatencyBreaches(latencyCandidates),
   };
 }
 

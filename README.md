@@ -16,15 +16,9 @@ Playwright — as one coherent developer-infrastructure product.
 
 ## Screenshots
 
-| | |
-| --- | --- |
-| ![Pull request risk overview](docs/images/overview.png) | ![PR detail with findings](docs/images/pr-detail.png) |
-| *Overview — one explainable risk story* | *PR detail — findings with code evidence* |
-| ![Visual regression comparison viewer](docs/images/visual-run.png) | ![Synthetic monitor journey results](docs/images/synthetic-monitor.png) |
-| *Visual regression — side-by-side/overlay/diff modes* | *Synthetic monitoring — step timeline and latency percentiles* |
-
-> The screenshots above are committed from a live instance. Regenerate them against a running
-> dashboard with real data: `pnpm screenshots` (writes to `docs/images/`).
+Screenshots are not currently committed because the dashboard requires a configured local instance
+and representative data. After starting the app, run `pnpm screenshots` to capture the current UI
+under `docs/images/`; do not treat generated demo data as production evidence.
 
 ---
 
@@ -106,8 +100,8 @@ Key invariants:
 - Organizations with owner > admin > member roles: members read; only admins mutate. Every
   mutating API route is role-checked and audit-logged with the acting user.
 - Closed-loop onboarding from the **Team** page: invite members by GitHub verified email, approve
-  or deny self-serve access requests, edit or revoke roles — with owner protection (owners are
-  immutable; the last owner cannot be demoted or removed).
+  or deny self-serve access requests, edit or revoke roles — with database-serialized owner
+  protection (an owner can step down only after another owner exists).
 - GitHub App installations arrive unclaimed via webhook and are bound to exactly one organization
   by an explicit admin claim that backfills their repositories.
 
@@ -194,6 +188,7 @@ Every variable is documented with defaults in [.env.example](.env.example). High
 | --- | --- | --- |
 | `DATABASE_URL` | yes | PostgreSQL connection |
 | `REDIS_URL` | yes (queues/workers) | BullMQ connection |
+| `AUTH_GITHUB_CLIENT_ID` / `AUTH_GITHUB_CLIENT_SECRET` | yes in production | GitHub OAuth; unauthenticated local mode is development-only |
 | `DASHBOARD_URL` | recommended | used in check-run links |
 | `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` / `GITHUB_WEBHOOK_SECRET` | for webhooks | GitHub App |
 | `GITHUB_TOKEN` | optional | PAT fallback for manual review runs |
@@ -213,22 +208,23 @@ docker compose --profile app up -d   # full local stack: infra + migrations + ap
 ```
 
 The image includes Chromium for the visual/synthetic workers. Managed Postgres/Redis/S3 work out of
-the box (connection-string URLs only). See [docs/deployment.md](docs/deployment.md) for the
-production topology, secrets, and hardening checklist.
+the box (connection-string URLs only). Production deployments must configure GitHub OAuth; the
+unauthenticated local operator mode is rejected in production. See [docs/deployment.md](docs/deployment.md)
+for the production topology, secrets, and hardening checklist.
 
 ## Testing & verification
 
 ```bash
-pnpm test        # unit tests: rule engine, risk engine, patch parsing, webhook signature
-                 # validation + idempotency policy, DOM diff, pixel diff, percentiles, SSRF
-                 # ranges, artifact tokens, finding normalization/dedupe
-pnpm typecheck   # strict TS across app + workers
-pnpm build       # production build of the dashboard
+pnpm test                         # unit tests; integration suite is skipped unless explicitly enabled
+RUN_DB_INTEGRATION=1 pnpm test:integration  # PostgreSQL owner-race and production-metrics tests
+pnpm typecheck                    # strict TS across app + workers
+pnpm build                        # production build of the dashboard
 ```
 
-Workers, webhook flow and Playwright execution are integration-tested against real infrastructure
-(docker compose services) — see the CI workflow which runs typecheck → unit tests → migrations →
-build with Postgres and Redis services.
+CI runs typecheck and unit tests, applies migrations against an isolated PostgreSQL service, executes
+the PostgreSQL-backed owner-concurrency and production-risk aggregate regressions, and then builds the
+dashboard and Docker image. Browser-based visual/synthetic end-to-end scenarios are not yet claimed as
+CI coverage.
 
 ## Security model
 
@@ -238,7 +234,10 @@ See [docs/security-model.md](docs/security-model.md). Summary:
 - Webhook signature validation, delivery idempotency, and fast-ack response contract.
 - **Multi-user OAuth**: GitHub sign-in with server-side sessions (HttpOnly cookie, hashed token at
   rest, signed expiring OAuth state), organization memberships with owner/admin/member roles, and
-  member-level write protection on every mutating API route.
+  member-level write protection on every mutating API route. Accounts bind to GitHub's immutable
+  numeric account ID; a verified email already bound to another ID is rejected rather than merged.
+- Review runs use a database unique key and transactional dispatch outbox; pending dispatches are
+  retried by review workers with deterministic queue job IDs.
 - SSRF guard on every user-supplied URL (scheme allowlist, localhost/metadata hostname blocklist,
   DNS resolution + private-range rejection, documented DNS-rebinding limitation).
 - Secrets never reach the client bundle; artifact access only via signed, expiring URLs;
@@ -248,8 +247,8 @@ See [docs/security-model.md](docs/security-model.md). Summary:
 
 ## Limitations (honest)
 
-- **Auth modes**: OAuth mode enables true multi-user access; without `AUTH_GITHUB_CLIENT_ID`/
-  `SECRET` the dashboard runs in local single-operator mode with no sign-in (localhost only).
+- **Auth modes**: OAuth mode enables true multi-user access. Unauthenticated local single-operator
+  mode is development-only; production requests fail closed until GitHub OAuth is configured.
   Roles are org-global (no per-resource ACLs); ownership transfer is promote-then-self-demote.
 - **Local preview builds**: suites target running URLs; building/starting untrusted PR code
   locally is deliberately not wired (secure boundary, documented).
@@ -271,7 +270,8 @@ See [docs/security-model.md](docs/security-model.md). Summary:
 | `pnpm build` / `pnpm start` | Production build / serve |
 | `pnpm worker:review` / `worker:visual` / `worker:synthetic` | Workers |
 | `pnpm db:migrate` / `db:migrate:dev` / `db:studio` / `db:generate` | Prisma |
-| `pnpm test` / `typecheck` | Verification |
+| `pnpm test` / `pnpm test:integration` / `typecheck` | Unit, database integration and static verification |
+| `pnpm test:e2e` / `pnpm test:e2e:install` | Browser E2E suite / install Chromium |
 | `pnpm screenshots` | Regenerate README screenshots from a running dashboard (see below) |
 
 ## Docs
@@ -282,6 +282,8 @@ See [docs/security-model.md](docs/security-model.md). Summary:
 - [Visual baselines](docs/visual-baselines.md)
 - [Synthetic monitoring & scheduling](docs/synthetic-monitoring.md)
 - [Configuration reference](docs/configuration.md)
+- [Browser E2E testing](docs/e2e-testing.md)
+- [Database and artifact retention](docs/retention.md)
 
 ## Contributing & security
 

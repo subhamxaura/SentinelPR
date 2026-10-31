@@ -34,6 +34,7 @@ model Organization {
 model User {
   id         String   @id @default(cuid())
   email      String   @unique
+  githubId   String?  @unique // immutable numeric GitHub account id, stored as text
   name       String?
   githubLogin String? @unique // populated by OAuth sign-in
   avatarUrl  String?
@@ -190,6 +191,7 @@ model ReviewRun {
   pullRequestId String
   repositoryId  String
   headSha       String
+  idempotencyKey String?  @unique // canonical review identity: pullRequestId + headSha
   status        String    @default("queued") // queued | running | success | failure | error
   trigger       String    @default("webhook") // webhook | manual
   conclusion    String? // GitHub check conclusion
@@ -208,10 +210,31 @@ model ReviewRun {
   pullRequest PullRequest     @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
   repository  Repository      @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   findings    ReviewFinding[]
+  outbox      ReviewRunOutbox?
 
   @@index([repositoryId, createdAt])
   @@index([pullRequestId, headSha])
   @@index([status])
+  @@index([status, createdAt])
+}
+
+model ReviewRunOutbox {
+  id            String    @id @default(cuid())
+  reviewRunId   String    @unique
+  status        String    @default("pending") // pending | dispatching | dispatched
+  attemptCount  Int       @default(0)
+  nextAttemptAt DateTime  @default(now())
+  leaseUntil    DateTime?
+  leaseToken    String?
+  lastError     String?
+  dispatchedAt  DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  reviewRun ReviewRun @relation(fields: [reviewRunId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@index([status, leaseUntil])
 }
 
 model ReviewFinding {
@@ -306,6 +329,7 @@ model VisualRun {
 
   @@index([suiteId, createdAt])
   @@index([testId, createdAt])
+  @@index([status, createdAt])
 }
 
 model VisualSnapshot {
@@ -349,10 +373,11 @@ model VisualBaseline {
   createdAt  DateTime @default(now())
 
   test      VisualTest       @relation(fields: [testId], references: [id], onDelete: Cascade)
-  artifact  Artifact         @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+  artifact  Artifact         @relation(fields: [artifactId], references: [id], onDelete: Restrict)
   snapshots VisualSnapshot[]
 
-  @@unique([testId, browser, viewportLabel])
+  @@unique([testId, browser, viewportLabel, version])
+  @@index([testId, browser, viewportLabel, active])
 }
 
 model SyntheticTest {
@@ -405,6 +430,7 @@ model SyntheticRun {
 
   @@index([testId, createdAt])
   @@index([status])
+  @@index([status, createdAt])
 }
 
 model SyntheticStepResult {
@@ -437,6 +463,7 @@ model WebhookDelivery {
   processedAt        DateTime?
 
   @@index([createdAt])
+  @@index([status, createdAt])
 }
 
 // Binary artifacts live in object storage (S3/MinIO) or the local FS driver.
@@ -457,6 +484,20 @@ model Artifact {
   diffSnapshots         VisualSnapshot[]      @relation("diffArtifact")
   visualBaselines       VisualBaseline[]
   syntheticStepResults  SyntheticStepResult[]
+
+  @@index([createdAt])
+}
+
+// Durable deletion intent for objects whose metadata has been safely pruned.
+model ArtifactDeletion {
+  id            String   @id @default(cuid())
+  storageKey    String   @unique
+  attemptCount  Int      @default(0)
+  nextAttemptAt DateTime @default(now())
+  lastError     String?
+  createdAt     DateTime @default(now())
+
+  @@index([nextAttemptAt, createdAt])
 }
 
 model JobRecord {
@@ -474,6 +515,7 @@ model JobRecord {
 
   @@index([queue, createdAt])
   @@index([refId])
+  @@index([status, finishedAt])
 }
 
 model Alert {

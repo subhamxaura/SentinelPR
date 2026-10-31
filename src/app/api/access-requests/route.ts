@@ -7,6 +7,7 @@ import { defaultOrganization } from "@/lib/auth/provisioning";
 import { isAtLeast } from "@/lib/web/roles";
 import { recordAudit, requireOrganization } from "@/lib/web/session";
 import { apiError, parseBody } from "@/lib/web/api";
+import { enforceRateLimit, rateLimitPolicies } from "@/lib/web/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,7 @@ export async function POST(req: Request) {
     if (!session) {
       return NextResponse.json({ error: { code: "UNAUTHENTICATED", message: "Sign in first.", category: "auth" } }, { status: 401 });
     }
+    await enforceRateLimit(req, rateLimitPolicies.accessRequest, `user:${session.user.id}`);
 
     // Requests target the default (bootstrap) organization — the one new
     // users would auto-join when AUTH_ALLOW_DEFAULT_ORG_SIGNUP is enabled.
@@ -97,7 +99,7 @@ const decideSchema = z.object({ action: z.enum(["approve", "deny"]) });
  */
 export async function PUT(req: Request) {
   try {
-    const ctx = await requireOrganization();
+    const ctx = await requireOrganization(req);
     if (!isAtLeast(ctx.role, "admin")) {
       return NextResponse.json(
         { error: { code: "FORBIDDEN", message: "Only admins can decide access requests.", category: "authz" } },

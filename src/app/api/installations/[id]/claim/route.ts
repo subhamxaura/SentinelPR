@@ -7,6 +7,7 @@ import { listInstallationRepositories, getInstallationDetails } from "@/lib/gith
 import { registerRepository } from "@/lib/repositories/registration";
 import { verifyInstallationState, consumeInstallationNonce } from "@/lib/github/installation-state";
 import { logger } from "@/lib/logger";
+import { rateLimitPolicies } from "@/lib/web/rate-limit";
 
 const log = logger.child({ module: "api/installations" });
 
@@ -26,7 +27,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const ctx = await requireOrganization();
+    const ctx = await requireOrganization(req, [rateLimitPolicies.installationFlow]);
     requireMutationRole(ctx, req.method);
     if (ctx.role === "member") throw err.authz("Only admins can claim installations.");
 

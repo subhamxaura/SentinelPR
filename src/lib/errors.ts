@@ -71,6 +71,15 @@ export const err = {
       retryable: true,
       status: 429,
     }),
+  apiRateLimit: (scope: string, retryAfterSeconds: number) =>
+    new AppError({
+      code: "API_RATE_LIMIT_EXCEEDED",
+      message: "Too many requests. Please wait before retrying.",
+      category: "rate_limit",
+      retryable: true,
+      details: { scope, retryAfterSeconds },
+      status: 429,
+    }),
   infra: (message: string, code = "INFRASTRUCTURE_ERROR") =>
     new AppError({ code, message, category: "infrastructure", retryable: true, status: 503 }),
   timeout: (message: string) =>

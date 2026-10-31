@@ -9,7 +9,7 @@ import { validatePublicUrl } from "@/lib/net/guard";
 
 export async function GET(req: Request) {
   try {
-    const org = await requireOrganization();
+    const org = await requireOrganization(req);
     const suites = await prisma.visualSuite.findMany({
       where: { organizationId: org.id },
       orderBy: { createdAt: "desc" },
@@ -35,7 +35,7 @@ const createSuiteSchema = z.object({
 export async function POST(req: Request) {
   try {
     const body = parseBody(createSuiteSchema, await req.json());
-    const org = await requireOrganization();
+    const org = await requireOrganization(req);
     requireMutationRole(org, req.method);
 
     await validatePublicUrl(body.baseUrl); // SSRF guard applies to suites too

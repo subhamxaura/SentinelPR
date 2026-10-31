@@ -7,6 +7,8 @@ import { ensureMemberships, upsertUserFromIdentity } from "@/lib/auth/provisioni
 import { createSession } from "@/lib/auth/session-store";
 import { OAUTH_STATE_COOKIE, clearOAuthStateCookie } from "@/lib/auth/oauth-cookie";
 import { logger } from "@/lib/logger";
+import { apiError } from "@/lib/web/api";
+import { enforcePublicApiRateLimit, rateLimitPolicies } from "@/lib/web/rate-limit";
 
 const log = logger.child({ module: "auth/callback" });
 
@@ -15,6 +17,11 @@ export const dynamic = "force-dynamic";
 
 /** GET /api/auth/github/callback?code=…&state=… — completes the OAuth flow. */
 export async function GET(req: NextRequest) {
+  try {
+    await enforcePublicApiRateLimit(req, rateLimitPolicies.oauthCallback);
+  } catch (e) {
+    return apiError(e);
+  }
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const stateParam = url.searchParams.get("state");

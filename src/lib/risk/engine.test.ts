@@ -80,6 +80,22 @@ describe("computeRisk", () => {
     expect(risk.level).toBe("high");
   });
 
+  it("reports per-monitor P95 latency breaches with their sample counts", () => {
+    const risk = computeRisk({
+      findings: [],
+      synthetic: {
+        availability: 1,
+        consecutiveFailures: 0,
+        p95Ms: null,
+        latencyThresholdMs: null,
+        latencyBreaches: [{ testName: "Checkout", p95Ms: 840, thresholdMs: 500, sampleCount: 24 }],
+      },
+    });
+    const production = risk.signals.find((signal) => signal.dimension === "production");
+    expect(production?.level).toBe("medium");
+    expect(production?.reasons.join(" ")).toMatch(/Checkout P95 latency 840ms exceeds its 500ms threshold \(24 successful samples\)/);
+  });
+
   it("is explainable: every non-none level has reasons", () => {
     const risk = computeRisk({
       findings: [finding({ category: "security", severity: "high" })],

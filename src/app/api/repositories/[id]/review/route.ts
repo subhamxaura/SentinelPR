@@ -5,9 +5,11 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { apiError, parseBody } from "@/lib/web/api";
 import { actorFor, recordAudit, requireMutationRole, requireOrganization } from "@/lib/web/session";
-import { enqueueReviewRun } from "@/lib/queue";
 import { fetchPullRequestData } from "@/lib/github/client";
 import { toAppError } from "@/lib/errors";
+import { ensureReviewRun } from "@/lib/review/runs";
+import { dispatchReviewRunOutbox } from "@/lib/review/outbox";
+import { rateLimitPolicies } from "@/lib/web/rate-limit";
 
 const reviewSchema = z.object({
   pullNumber: z.number().int().min(1).max(100_000),
@@ -23,7 +25,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   try {
     const { id } = await params;
     const body = parseBody(reviewSchema, await req.json());
-    const org = await requireOrganization();
+    const org = await requireOrganization(req, [rateLimitPolicies.manualReview]);
     requireMutationRole(org, req.method);
 
     const repository = await prisma.repository.findFirst({
@@ -74,35 +76,28 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       },
     });
 
-    const run = await prisma.reviewRun.create({
-      data: {
-        pullRequestId: pullRequestRow.id,
-        repositoryId: repository.id,
-        headSha: pr.headSha,
-        trigger: "manual",
-        status: "queued",
-      },
+    const ensured = await ensureReviewRun({
+      pullRequestId: pullRequestRow.id,
+      repositoryId: repository.id,
+      headSha: pr.headSha,
+      trigger: "manual",
     });
 
-    try {
-      await enqueueReviewRun(run.id);
-    } catch (e) {
-      const appErr = toAppError(e);
-      await prisma.reviewRun.update({
-        where: { id: run.id },
-        data: {
-          status: "error",
-          error: JSON.stringify(appErr.toJSON()),
-          completedAt: new Date(),
-        },
-      });
-      return NextResponse.json(
-        { error: { code: "QUEUE_UNAVAILABLE", message: "Queue unavailable. Start Redis with `docker compose up -d redis` and try again.", category: "infrastructure", retryable: true } },
-        { status: 503 },
-      );
+    if (ensured.shouldEnqueue) {
+      try {
+        await dispatchReviewRunOutbox(ensured.run.id);
+      } catch (e) {
+        const appErr = toAppError(e);
+        return NextResponse.json(
+          { error: { code: "QUEUE_UNAVAILABLE", message: "Queue unavailable. Start Redis with `docker compose up -d redis` and try again.", category: "infrastructure", retryable: true } },
+          { status: 503 },
+        );
+      }
     }
-    await recordAudit(org.id, actorFor(org), "review.triggered", "review_run", run.id, { repo: repository.fullName, pullNumber: pr.number });
-    return NextResponse.json({ runId: run.id }, { status: 202 });
+    if (ensured.created) {
+      await recordAudit(org.id, actorFor(org), "review.triggered", "review_run", ensured.run.id, { repo: repository.fullName, pullNumber: pr.number });
+    }
+    return NextResponse.json({ runId: ensured.run.id, reused: !ensured.created, status: ensured.run.status }, { status: 202 });
   } catch (e) {
     return apiError(e);
   }

@@ -14,11 +14,27 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
-  # Re-verify the exact tagged commit before anything is published. The
-  # Docker build below compiles the dashboard, so the full build gate from
-  # CI is effectively included here.
+  # Re-verify the exact tagged commit, including PostgreSQL migrations and
+  # database-backed invariants, before anything is published.
   verify:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: sentinel
+          POSTGRES_PASSWORD: sentinel
+          POSTGRES_DB: sentinelpr
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sentinel"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://sentinel:sentinel@localhost:5432/sentinelpr?schema=public
     steps:
       - uses: actions/checkout@v4
 
@@ -33,19 +49,39 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
       - name: Typecheck
         run: pnpm typecheck
 
       - name: Unit tests
         run: pnpm test
 
+      - name: Apply database schema
+        run: pnpm db:migrate
+
+      - name: Database-backed concurrency tests
+        run: RUN_DB_INTEGRATION=1 pnpm test:integration
+
+      - name: Build dashboard
+        env:
+          AUTH_GITHUB_CLIENT_ID: ci-placeholder
+          AUTH_GITHUB_CLIENT_SECRET: ci-placeholder
+          AUTH_STATE_SECRET: ci-only-not-a-secret
+          ARTIFACT_TOKEN_SECRET: ci-only-not-a-secret
+          GITHUB_INSTALLATION_SECRET: ci-only-not-a-secret
+        run: pnpm build
+
   publish:
     runs-on: ubuntu-latest
     needs: verify
     timeout-minutes: 30
     permissions:
-      contents: read
+      contents: write
       packages: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
 
@@ -79,6 +115,8 @@ jobs:
         with:
           context: .
           push: true
+          provenance: mode=max
+          sbom: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

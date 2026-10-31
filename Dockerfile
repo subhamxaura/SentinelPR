@@ -17,7 +17,13 @@ FROM base AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN pnpm db:generate && pnpm build
+RUN pnpm db:generate && \
+    AUTH_GITHUB_CLIENT_ID=build-placeholder \
+    AUTH_GITHUB_CLIENT_SECRET=build-placeholder \
+    AUTH_STATE_SECRET=build-only-not-a-secret \
+    ARTIFACT_TOKEN_SECRET=build-only-not-a-secret \
+    GITHUB_INSTALLATION_SECRET=build-only-not-a-secret \
+    pnpm build
 
 # ── Runtime: dedicated non-root user (node) ──────────────────────────────────
 FROM base AS runner

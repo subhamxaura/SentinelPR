@@ -2,8 +2,9 @@
  * User + organization provisioning.
  *
  * Access model (documented in docs/security-model.md):
- * - A GitHub identity maps 1:1 to a User row (matched by verified email,
- *   with githubLogin as a secondary key for email changes on GitHub's side).
+ * - A GitHub identity maps 1:1 to a User row by GitHub's immutable numeric ID.
+ * - A verified primary email may bind a legacy row once, but an email already
+ *   bound to a different GitHub ID is never silently merged.
  * - Memberships come from existing rows, pending OrganizationInvite rows, or —
  *   when AUTH_ALLOW_DEFAULT_ORG_SIGNUP is not "0" — auto-joining the default
  *   org. The first member of the default org becomes its owner.
@@ -33,62 +34,83 @@ function isSerializationFailure(e: unknown): boolean {
   return typeof e === "object" && e !== null && "code" in e && (e as { code?: string }).code === "P2034";
 }
 
-/** Idempotently upsert the User row for a GitHub identity. */
+function toProvisionedUser(user: { id: string; email: string; name: string | null }): ProvisionedUser {
+  return { id: user.id, email: user.email, name: user.name };
+}
+
+/** Bind a GitHub account by its immutable provider ID; never trust a mutable login as identity. */
 export async function upsertUserFromIdentity(identity: GitHubIdentity): Promise<ProvisionedUser> {
-  const byEmail = await prisma.user.findUnique({ where: { email: identity.email } });
-  if (byEmail) {
-    try {
-      const updated = await prisma.user.update({
-        where: { id: byEmail.id },
-        data: {
-          githubLogin: identity.login,
-          avatarUrl: identity.avatarUrl,
-          name: byEmail.name ?? identity.name,
-        },
-      });
-      return { id: updated.id, email: updated.email, name: updated.name };
-    } catch (e) {
-      // githubLogin is already attached to another local row. The verified
-      // email still identifies this account; do not steal the login.
-      if (!isUniqueViolation(e)) throw e;
-      return { id: byEmail.id, email: byEmail.email, name: byEmail.name };
+  const githubId = String(identity.githubId);
+  const byId = await prisma.user.findUnique({ where: { githubId } });
+  if (byId) {
+    const emailOwner = await prisma.user.findUnique({ where: { email: identity.email } });
+    if (emailOwner && emailOwner.id !== byId.id) {
+      throw new Error("This verified GitHub email is already linked to a different SentinelPR account.");
     }
-  }
-
-  // Email changed on GitHub's side — the unique login still identifies the person.
-  const byLogin = await prisma.user.findUnique({ where: { githubLogin: identity.login } });
-  if (byLogin) {
-    const updated = await prisma.user
-      .update({
-        where: { id: byLogin.id },
-        data: {
-          email: identity.email,
-          avatarUrl: identity.avatarUrl,
-          name: byLogin.name ?? identity.name,
-        },
-      })
-      .catch(() => byLogin); // new email already belongs to another local user; keep old
-    return { id: updated.id, email: updated.email, name: updated.name };
-  }
-
-  try {
-    const created = await prisma.user.create({
+    const loginOwner = await prisma.user.findUnique({ where: { githubLogin: identity.login } });
+    const updated = await prisma.user.update({
+      where: { id: byId.id },
       data: {
         email: identity.email,
-        name: identity.name,
-        githubLogin: identity.login,
+        githubLogin: loginOwner && loginOwner.id !== byId.id ? byId.githubLogin : identity.login,
         avatarUrl: identity.avatarUrl,
+        name: byId.name ?? identity.name,
       },
     });
-    return { id: created.id, email: created.email, name: created.name };
-  } catch (e) {
-    if (!isUniqueViolation(e)) throw e;
-    // Concurrent first sign-in won the insert race.
-    const existing =
-      (await prisma.user.findUnique({ where: { email: identity.email } })) ??
-      (await prisma.user.findUnique({ where: { githubLogin: identity.login } }));
-    if (!existing) throw e;
-    return { id: existing.id, email: existing.email, name: existing.name };
+    return toProvisionedUser(updated);
+  }
+
+  const byEmail = await prisma.user.findUnique({ where: { email: identity.email } });
+  if (byEmail) {
+    if (byEmail.githubId && byEmail.githubId !== githubId) {
+      throw new Error("This verified GitHub email is already linked to a different GitHub account.");
+    }
+    const loginOwner = await prisma.user.findUnique({ where: { githubLogin: identity.login } });
+    const updated = await prisma.user.update({
+      where: { id: byEmail.id },
+      data: {
+        githubId,
+        githubLogin: loginOwner && loginOwner.id !== byEmail.id ? byEmail.githubLogin : identity.login,
+        avatarUrl: identity.avatarUrl,
+        name: byEmail.name ?? identity.name,
+      },
+    });
+    return toProvisionedUser(updated);
+  }
+
+  // If a recycled username still belongs to a legacy account, do not claim it.
+  const loginOwner = await prisma.user.findUnique({ where: { githubLogin: identity.login } });
+  const data = {
+    githubId,
+    email: identity.email,
+    name: identity.name,
+    githubLogin: loginOwner ? null : identity.login,
+    avatarUrl: identity.avatarUrl,
+  };
+  try {
+    return toProvisionedUser(await prisma.user.create({ data }));
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    // A same-account first-sign-in race is resolved by immutable ID. A distinct
+    // account claiming the same verified email is rejected, never merged.
+    const racedById = await prisma.user.findUnique({ where: { githubId } });
+    if (racedById) return toProvisionedUser(racedById);
+    const racedByEmail = await prisma.user.findUnique({ where: { email: identity.email } });
+    if (racedByEmail) {
+      if (racedByEmail.githubId && racedByEmail.githubId !== githubId) {
+        throw new Error("This verified GitHub email is already linked to a different GitHub account.");
+      }
+      const bound = await prisma.user.update({ where: { id: racedByEmail.id }, data: { githubId } });
+      return toProvisionedUser(bound);
+    }
+    // A username-only collision can be safely avoided because githubId is the
+    // identity key; create an account without the display login rather than
+    // attaching a different person's account.
+    if (data.githubLogin) {
+      const created = await prisma.user.create({ data: { ...data, githubLogin: null } });
+      return toProvisionedUser(created);
+    }
+    throw error;
   }
 }
 

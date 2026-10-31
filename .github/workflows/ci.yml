@@ -64,7 +64,35 @@ jobs:
       - name: Apply database schema
         run: pnpm db:migrate
 
+      - name: PostgreSQL and Redis integration tests
+        run: RUN_DB_INTEGRATION=1 pnpm test:integration
+
+      - name: Create isolated E2E database
+        env:
+          PGPASSWORD: sentinel
+        run: psql "postgresql://sentinel:sentinel@localhost:5432/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE sentinelpr_e2e"
+
+      - name: Apply migrations to isolated E2E database
+        env:
+          DATABASE_URL: postgresql://sentinel:sentinel@localhost:5432/sentinelpr_e2e?schema=public
+        run: pnpm db:migrate
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Browser end-to-end tests
+        env:
+          E2E_DATABASE_URL: postgresql://sentinel:sentinel@localhost:5432/sentinelpr_e2e?schema=public
+          E2E_REDIS_URL: redis://localhost:6379/1
+        run: pnpm test:e2e
+
       - name: Build dashboard
+        env:
+          AUTH_GITHUB_CLIENT_ID: ci-placeholder
+          AUTH_GITHUB_CLIENT_SECRET: ci-placeholder
+          AUTH_STATE_SECRET: ci-only-not-a-secret
+          ARTIFACT_TOKEN_SECRET: ci-only-not-a-secret
+          GITHUB_INSTALLATION_SECRET: ci-only-not-a-secret
         run: pnpm build
 
   # The shipped Dockerfile cannot regress: build it on every change. Push is

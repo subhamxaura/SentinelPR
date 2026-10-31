@@ -14,12 +14,12 @@ interface MembershipView {
 }
 
 /** GET /api/session — current user, memberships, active organization. */
-export async function GET() {
+export async function GET(req: Request) {
   try {
     if (authMode() === "local") {
       return NextResponse.json({ mode: "local", user: null, memberships: [], organization: null });
     }
-    const ctx = await resolveOrganization();
+    const ctx = await resolveOrganization(req);
     if (!ctx) return NextResponse.json({ mode: "oauth", user: null, memberships: [], organization: null });
 
     const memberships = await listMemberships(ctx.user!.id);
@@ -37,7 +37,7 @@ export async function GET() {
 /** POST /api/session { organizationId } — switch active organization. */
 export async function POST(req: Request) {
   try {
-    const ctx = await resolveOrganization();
+    const ctx = await resolveOrganization(req);
     if (!ctx || !ctx.sessionId) {
       return NextResponse.json({ error: { code: "UNAUTHENTICATED", message: "Sign in first.", category: "auth" } }, { status: 401 });
     }

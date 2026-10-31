@@ -6,13 +6,22 @@ import { env } from "@/lib/env";
  * - "local": single trusted operator; resolveOrganization() bootstraps one org.
  * - "oauth": GitHub OAuth sign-in, database-backed sessions, multi-tenant.
  *
- * SENTINEL_AUTH_MODE pins a mode. Unset = auto: oauth when GitHub OAuth client
- * credentials exist, otherwise local — so existing deployments keep working
- * until the operator opts in. Documented in docs/security-model.md.
+ * SENTINEL_AUTH_MODE can pin a mode in development. Unset = OAuth when GitHub
+ * OAuth credentials exist, otherwise local in development only. Production
+ * requires OAuth credentials and never falls back to unauthenticated local mode.
  */
 export type AuthMode = "oauth" | "local";
 
 export function authMode(): AuthMode {
+  if (process.env.NODE_ENV === "production") {
+    if (!env.auth.oauthReady || env.auth.configuredMode === "local") {
+      throw new Error(
+        "Production authentication requires GitHub OAuth credentials and cannot use SENTINEL_AUTH_MODE=local. " +
+        "Unauthenticated local mode is development-only.",
+      );
+    }
+    return "oauth";
+  }
   return env.auth.configuredMode ?? (env.auth.oauthReady ? "oauth" : "local");
 }
 

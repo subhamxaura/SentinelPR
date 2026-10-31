@@ -4,6 +4,7 @@ import { err } from "@/lib/errors";
 import { apiError } from "@/lib/web/api";
 import { appInstallationUrl } from "@/lib/github/client";
 import { createInstallationState, setInstallationCookie } from "@/lib/github/installation-state";
+import { rateLimitPolicies } from "@/lib/web/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: NextRequest) {
   try {
-    const ctx = await requireOrganization();
+    const ctx = await requireOrganization(req, [rateLimitPolicies.installationFlow]);
     requireMutationRole(ctx, "POST");
     if (ctx.role === "member") {
       throw err.authz("Only administrators can connect GitHub App installations.");
